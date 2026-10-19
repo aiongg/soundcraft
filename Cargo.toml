@@ -47,6 +47,7 @@ craft-docpath = { version = "0.1.0", git = "https://github.com/storytold/craft-l
 
 # ui
 craft-ui = { version = "0.1.0", git = "https://github.com/storytold/craft-libs", rev = "5c874d51eeb3de70e735c8ce87a59a7dedd47675", features = ["serde"] }
+craft-media = { version = "0.1.0", git = "https://github.com/aiongg/craft-libs", rev = "02682977c7da14584c43306fe48c33f01d0da151" }
 egui = "0.36"
 eframe = { version = "0.36", default-features = false }
 egui_kittest = "0.36"
