@@ -25,7 +25,7 @@ APP_ID=ai.storyteller.soundcraft
 
 SKIP_BUILD=0
 FORMATS="appimage deb rpm tar"
-while [ $# -gt 0 ]; do
+while [[ $# -gt 0 ]]; do
   case "$1" in
     --skip-build) SKIP_BUILD=1; shift ;;
     --formats) FORMATS="$2"; shift 2 ;;
@@ -46,8 +46,8 @@ BASENAME="soundcraft-$VERSION-linux-$ARCH"
 
 echo "==> SoundCraft $VERSION for Linux $ARCH ($FORMATS)"
 
-if [ "$SKIP_BUILD" = 0 ]; then
-  if [ -n "${CROSS_TARGET:-}" ]; then
+if [[ "$SKIP_BUILD" = 0 ]]; then
+  if [[ -n "${CROSS_TARGET:-}" ]]; then
     (cd "$ROOT" && cargo build --release --locked -p soundcraft -p soundcraft-cli --target "$CROSS_TARGET")
   else
     (cd "$ROOT" && cargo build --release --locked -p soundcraft -p soundcraft-cli)
@@ -79,7 +79,10 @@ if command -v appstreamcli >/dev/null; then
   appstreamcli validate --no-net --explain "$STAGE/usr/share/metainfo/$APP_ID.metainfo.xml"
 fi
 
-has() { case " $FORMATS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+has() {
+  local format="$1"
+  case " $FORMATS " in *" $format "*) return 0 ;; *) return 1 ;; esac
+}
 
 # ---- .tar.gz ------------------------------------------------------------------------------------
 if has tar; then
@@ -107,16 +110,16 @@ if has appimage; then
   case "$ARCH" in
     x86_64) APPIMAGETOOL_SHA256=ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0 ;;
     aarch64) APPIMAGETOOL_SHA256=f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158 ;;
-    *) APPIMAGETOOL_SHA256= ;;
+    *) APPIMAGETOOL_SHA256='' ;;
   esac
   # appimagetool otherwise fetches the unpinned type2-runtime `continuous` build and embeds it.
   APPIMAGE_RUNTIME_VERSION=20251108
   case "$ARCH" in
     x86_64) APPIMAGE_RUNTIME_SHA256=2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d ;;
     aarch64) APPIMAGE_RUNTIME_SHA256=00cbdfcf917cc6c0ff6d3347d59e0ca1f7f45a6df1a428a0d6d8a78664d87444 ;;
-    *) APPIMAGE_RUNTIME_SHA256= ;;
+    *) APPIMAGE_RUNTIME_SHA256='' ;;
   esac
-  if [ -z "$APPIMAGE_RUNTIME_SHA256" ]; then
+  if [[ -z "$APPIMAGE_RUNTIME_SHA256" ]]; then
     echo "no pinned AppImage runtime for $ARCH; build the AppImage on x86_64 or aarch64" >&2
     exit 2
   fi
@@ -129,13 +132,13 @@ if has appimage; then
   ln -s "$APP_ID.png" "$APPDIR/.DirIcon"
 
   TOOL="${APPIMAGETOOL:-$(command -v appimagetool || true)}"
-  if [ -z "$TOOL" ]; then
-    if [ -z "$APPIMAGETOOL_SHA256" ]; then
+  if [[ -z "$TOOL" ]]; then
+    if [[ -z "$APPIMAGETOOL_SHA256" ]]; then
       echo "no pinned appimagetool for $ARCH; set APPIMAGETOOL or put appimagetool on PATH" >&2
       exit 2
     fi
     TOOL="$CARGO_TARGET_DIR/appimagetool-$APPIMAGETOOL_VERSION-$ARCH.AppImage"
-    if [ ! -x "$TOOL" ]; then
+    if [[ ! -x "$TOOL" ]]; then
       download="$TOOL.download"
       curl --proto '=https' -fsSL -o "$download" \
         "https://github.com/AppImage/appimagetool/releases/download/$APPIMAGETOOL_VERSION/appimagetool-$ARCH.AppImage"
@@ -146,7 +149,7 @@ if has appimage; then
     printf '%s  %s\n' "$APPIMAGETOOL_SHA256" "$TOOL" | sha256sum -c -
   fi
   RUNTIME="$CARGO_TARGET_DIR/appimage-runtime-$APPIMAGE_RUNTIME_VERSION-$ARCH"
-  if [ ! -f "$RUNTIME" ]; then
+  if [[ ! -f "$RUNTIME" ]]; then
     download="$RUNTIME.download"
     curl --proto '=https' -fsSL -o "$download" \
       "https://github.com/AppImage/type2-runtime/releases/download/$APPIMAGE_RUNTIME_VERSION/runtime-$ARCH"
@@ -173,16 +176,16 @@ if has appimage; then
   # package) appimagetool also writes the .zsync, into its working directory, hence the cd.
   (cd "$DIST" && ARCH="$ARCH" APPIMAGE_EXTRACT_AND_RUN=1 "$TOOL" --no-appstream --runtime-file "$RUNTIME" -u "$UPDATE_INFO" "$APPDIR" "$OUT")
   echo "wrote $OUT"
-  if [ -s "$OUT.zsync" ]; then
+  if [[ -s "$OUT.zsync" ]]; then
     echo "wrote $OUT.zsync"
   else
     warn "zsyncmake not found, so $OUT.zsync was not written; AppImage delta updates need it"
   fi
 fi
 
-if [ -z "${CROSS_TARGET:-}" ]; then
+if [[ -z "${CROSS_TARGET:-}" ]]; then
   "$STAGE/usr/bin/soundcraft-cli" --version
-elif [ -n "${EMULATOR:-}" ]; then
+elif [[ -n "${EMULATOR:-}" ]]; then
   "$EMULATOR" "$STAGE/usr/bin/soundcraft-cli" --version
 fi
 echo "==> done"
