@@ -253,3 +253,33 @@ fn dragging_a_group_by_its_drag_bar_joins_it_to_another_group() {
     assert!(h.state().ui.show_clip_list);
     soundcraft_ui_egui::docking::validate(&h.state().ui.docking).unwrap();
 }
+
+#[test]
+fn malformed_dock_operations_name_the_field() {
+    let mut h = harness(None, 1400.0, 1.0);
+    for (params, error) in [
+        (json!({"operation":"close"}), "panel is required"),
+        (json!({"operation":"close","panel":"mixer"}), "Unknown panel: mixer"),
+        (
+            json!({"operation":"move","panel":"clips","target":"tracks","zone":"middle"}),
+            "zone must be tab, center, left, right, top, bottom, above or below",
+        ),
+    ] {
+        assert_eq!(h.state_mut().run("ui.dock", params).unwrap_err(), error);
+    }
+}
+
+#[test]
+fn a_panel_without_a_recorded_place_opens_beside_the_session_view() {
+    use craft_ui::docking::{Action, Permissions, Placement, Zone};
+    let mut state = UiState::default();
+    state.docking.apply(Action::Close { panel: Panel::Tracks }, |_| Permissions::default()).unwrap();
+    state.docking.hidden.clear();
+    state.show_tracks_list = false;
+    let mut h = harness(Some(state), 1400.0, 1.0);
+    h.state_mut().run("ui.dock", json!({"operation":"open","panel":"tracks"})).unwrap();
+    h.run_steps(4);
+    let location = h.state().ui.docking.layout.location(&Panel::Tracks).unwrap();
+    assert_eq!((location.anchor, location.placement), (Some(Panel::Canvas), Placement::Split(Zone::Left)));
+    assert!(h.state().ui.show_tracks_list);
+}

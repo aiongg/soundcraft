@@ -3,7 +3,7 @@
 
 use craft_ui::docking::{
     Action, DockArea, DockCommand, DockError, DockOperation, DockStyle, FloatSpace, Floating, Layout, Node, PanelLimits, Permissions, Placement,
-    UiDock, Zone,
+    UiDock, Zone, ZoneName,
 };
 use craft_ui::layout::{SplitAxis, SplitSize};
 use serde::{Deserialize, Serialize};
@@ -48,9 +48,6 @@ impl Panel {
 pub type Workspace = craft_ui::docking::Workspace<Panel>;
 
 const MIDI_TAB_HEIGHT: f32 = 26.0;
-
-/// Where `window.panel.float` places a panel before any dock area has drawn (headless runs).
-const HEADLESS_AREA: egui::Rect = egui::Rect { min: egui::pos2(0.0, 0.0), max: egui::pos2(1280.0, 800.0) };
 
 /// The document view stays docked and open, and panels open in splits beside it.
 fn permissions(panel: &Panel) -> Permissions {
@@ -190,14 +187,15 @@ fn set_visible(workspace: &mut Workspace, panel: Panel, visible: bool) -> Result
 
 /// Run a shared docking command. A hidden panel that is opened or activated comes back with
 /// [`set_visible`], so it gets SoundCraft's default place when it has no recorded one.
-fn run(workspace: &mut Workspace, command: &DockCommand<Panel>, space: &FloatSpace<Panel>) -> Result<(), String> {
+fn run(workspace: &mut Workspace, command: &DockCommand<Panel>) -> Result<(), String> {
     if let DockCommand::Activate { panel } | DockCommand::UiDock(UiDock::Operation(DockOperation::Open { panel } | DockOperation::Activate { panel })) =
         command
         && !workspace.layout.contains(panel)
     {
         return set_visible(workspace, *panel, true);
     }
-    checked(workspace, |next| command.apply(next, false, space, permissions).map(drop))
+    // Only `window.panel.float` reads the float space, and SoundCraft does not register it.
+    checked(workspace, |next| command.apply(next, false, &FloatSpace::new(egui::Rect::NOTHING), permissions).map(drop))
 }
 
 fn sync(workspace: &mut Workspace, app: &crate::SoundApp, edit: bool) -> Result<(), String> {
@@ -229,6 +227,27 @@ fn store(app: &mut crate::SoundApp, workspace: Workspace, edit: bool) {
     }
 }
 
+/// A `ui.dock` operation. Panels and zones are checked first so an error names the field;
+/// parsed through the untagged [`UiDock`], every mistake reads "did not match any variant".
+fn operation(fields: &serde_json::Map<String, Value>) -> Result<DockOperation<Panel>, String> {
+    let name = fields.get("operation").ok_or("operation is required")?.as_str().ok_or("operation must be a string")?;
+    if name != "resizeSplit" && !fields.contains_key("panel") {
+        return Err("panel is required".into());
+    }
+    for field in ["panel", "target"] {
+        if let Some(value) = fields.get(field) {
+            let id = value.as_str().ok_or_else(|| format!("{field} must be a panel ID"))?;
+            serde_json::from_value::<Panel>(json!(id)).map_err(|_| format!("Unknown panel: {id}"))?;
+        }
+    }
+    if let Some(zone) = fields.get("zone")
+        && serde_json::from_value::<ZoneName>(zone.clone()).is_err()
+    {
+        return Err("zone must be tab, center, left, right, top, bottom, above or below".into());
+    }
+    serde_json::from_value(Value::Object(fields.clone())).map_err(|error| error.to_string())
+}
+
 /// `ui.dock` and `ui.dock.reset`: the shared [`DockCommand`] vocabulary, applied to the
 /// front window's workspace.
 pub fn command(app: &mut crate::SoundApp, id: &str, params: &Value) -> Result<Value, String> {
@@ -241,8 +260,12 @@ pub fn command(app: &mut crate::SoundApp, id: &str, params: &Value) -> Result<Va
         Value::Null => serde_json::Map::new(),
         _ => return Err("Docking params must be an object".into()),
     };
-    fields.insert("command".into(), json!(id));
-    let command: DockCommand<Panel> = serde_json::from_value(Value::Object(fields)).map_err(|error| error.to_string())?;
+    let command = if id == "ui.dock" && !fields.contains_key("action") {
+        DockCommand::UiDock(UiDock::Operation(operation(&fields)?))
+    } else {
+        fields.insert("command".into(), json!(id));
+        serde_json::from_value(Value::Object(fields)).map_err(|error| error.to_string())?
+    };
     let previous = if edit { app.ui.docking.clone() } else { app.ui.mix_docking.clone() };
     let result = command_for(app, &command, edit)?;
     let next = if edit { &app.ui.docking } else { &app.ui.mix_docking };
@@ -277,13 +300,8 @@ fn command_for(app: &mut crate::SoundApp, command: &DockCommand<Panel>, edit: bo
         if !edit {
             validate_mix(&workspace)?;
         }
-        let space = app
-            .docking_context
-            .as_ref()
-            .and_then(|ctx| craft_ui::docking::float_space(ctx, area(edit)))
-            .unwrap_or_else(|| FloatSpace::new(HEADLESS_AREA));
         sync(&mut workspace, app, edit)?;
-        run(&mut workspace, command, &space)?;
+        run(&mut workspace, command)?;
         if !edit {
             validate_mix(&workspace)?;
         }
