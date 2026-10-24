@@ -87,6 +87,18 @@ fn real_drag_float_close_reopen_reload_retains_transport_and_mixer_commands() {
 }
 
 #[test]
+fn activating_a_hidden_panel_shows_it_and_its_window_flag() {
+    let mut h = harness(None, 1400.0, 1.0);
+    h.state_mut().run("ui.dock", json!({"operation":"close","panel":"tracks"})).unwrap();
+    h.run_steps(4);
+    assert!(!h.state().ui.show_tracks_list);
+    h.state_mut().run("ui.dock", json!({"operation":"activate","panel":"tracks"})).unwrap();
+    h.run_steps(4);
+    assert!(h.state().ui.show_tracks_list);
+    assert_eq!(h.state().ui.docking.layout.panel_state(&Panel::Tracks), craft_ui::docking::PanelState::Front);
+}
+
+#[test]
 fn invalid_docking_requests_are_atomic_in_edit_and_mix() {
     let mut h = harness(None, 1400.0, 1.0);
     for window in [MainWindow::Edit, MainWindow::Mix] {
