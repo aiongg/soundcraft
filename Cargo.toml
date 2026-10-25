@@ -45,13 +45,14 @@ zip = { version = "9", default-features = false }
 cpal = "0.18"
 
 # Which file paths stored in a session may be opened.
-craft-docpath = { version = "0.1.0", git = "https://github.com/storytold/craft-libs", rev = "a0916808f7d78bed8c7b90cdf937176015454a7f" }
+craft-docpath = { version = "0.1.0", git = "https://github.com/storytold/craft-libs", rev = "5b0f3c572a3b5c1e51bdb90d7ff788e0212ec1cc" }
 
 # Video containers and bitstreams, shared with the other craft apps.
-craft-media = { version = "0.1.0", git = "https://github.com/storytold/craft-libs", rev = "a0916808f7d78bed8c7b90cdf937176015454a7f" }
+craft-media = { version = "0.1.0", git = "https://github.com/storytold/craft-libs", rev = "5b0f3c572a3b5c1e51bdb90d7ff788e0212ec1cc" }
+craft-update = { version = "=0.1.0", git = "https://github.com/storytold/craft-libs", rev = "5b0f3c572a3b5c1e51bdb90d7ff788e0212ec1cc", features = ["egui"] }
 
 # ui
-craft-ui = { version = "0.1.0", git = "https://github.com/storytold/craft-libs", rev = "a0916808f7d78bed8c7b90cdf937176015454a7f", features = ["serde"] }
+craft-ui = { version = "0.1.0", git = "https://github.com/storytold/craft-libs", rev = "5b0f3c572a3b5c1e51bdb90d7ff788e0212ec1cc", features = ["serde"] }
 egui = { version = "0.37" }
 eframe = { version = "0.37", default-features = false }
 # Monotonic clock on native and the browser (the `web_time::Instant` panics-free equivalent).
