@@ -34,6 +34,9 @@ pub(crate) fn drag(h: &mut Harness<'_, SoundApp>, from: egui::Pos2, to: egui::Po
     h.run_steps(4);
 }
 
+/// A real panel drag, float, close and reopen keeps the recorded floating rectangle through a UI-state reload;
+/// the Trim tool and record-arm controls still work, and a floating edit panel does not cover the mix strip used
+/// after switching windows.
 #[test]
 fn real_drag_float_close_reopen_reload_retains_transport_and_mixer_commands() {
     let mut h = harness(None, 1400.0, 1.0);
@@ -81,7 +84,7 @@ fn real_drag_float_close_reopen_reload_retains_transport_and_mixer_commands() {
     reloaded.run_steps(4);
     assert_eq!(serde_json::to_value(&reloaded.state().ui.docking).unwrap(), edit);
     assert!(!reloaded.state().ui.mix_docking.layout.contains(&Panel::Clips));
-    let record = reloaded.get_by_label("Record enable");
+    let record = reloaded.get_by_label_contains("Record enable");
     // A real pointer click must remain outside the floating panel's occluding rectangle.
     assert!(!egui::Rect::from_min_size(egui::pos2(900.0, 70.0), vec2(220.0, 420.0)).contains(record.rect().center()));
     record.click();
@@ -248,4 +251,40 @@ fn malformed_dock_operations_name_the_field() {
     ] {
         assert_eq!(h.state_mut().run("ui.dock", params).unwrap_err(), error);
     }
+}
+
+/// Panels hidden one by one reopen into their original floating window, rebuilding the hidden-anchor chain in the
+/// process.
+#[test]
+fn panels_hidden_one_by_one_reopen_into_their_recorded_window() {
+    use craft_ui::docking::{Action, Node, Permissions};
+    let allow = |_: &Panel| Permissions::default();
+    let mut state = UiState::default();
+    state.docking.layout.floating.retain(|window| !window.contains(&Panel::History));
+    let window = state.docking.layout.floating.iter_mut().find(|window| window.contains(&Panel::Memory)).unwrap();
+    let rect = window.rect;
+    window.root = Node::Tabs { panels: vec![Panel::Memory, Panel::History], active: 0 };
+    state.docking.apply(Action::Close { panel: Panel::Memory }, allow).unwrap();
+    state.docking.apply(Action::Close { panel: Panel::History }, allow).unwrap();
+    let own = &mut state.docking.hidden.iter_mut().find(|(panel, _)| *panel == Panel::Memory).unwrap().1;
+    assert_eq!(own.anchor, Some(Panel::History));
+    // Only the outer hidden anchor retains a floating fallback, so the chain walk is required.
+    own.floating = None;
+    let own = own.clone();
+    assert_eq!(state.docking.layout.clone().restore(Panel::Memory, &own), Err(craft_ui::docking::DockError::MissingTarget));
+    state.show_memory_locations = false;
+    state.show_undo_history = false;
+    let mut h = harness(Some(state), 1400.0, 1.0);
+    h.state_mut().run("ui.dock", json!({"operation":"open","panel":"memory"})).unwrap();
+    h.run_steps(4);
+    let hidden_history = &h.state().ui.docking.hidden.iter().find(|(panel, _)| *panel == Panel::History).unwrap().1;
+    assert_eq!(hidden_history.anchor, Some(Panel::Memory), "the restored chain reverses its hidden neighbour's anchor");
+    h.state_mut().run("ui.dock", json!({"operation":"open","panel":"history"})).unwrap();
+    h.run_steps(4);
+    let layout = &h.state().ui.docking.layout;
+    let window = layout.floating.iter().find(|window| window.contains(&Panel::Memory)).expect("Memory reopens in its window");
+    assert!(window.contains(&Panel::History), "the hidden chain reopens History in Memory's window: {window:?}");
+    assert_eq!(window.rect, rect);
+    assert!(h.state().ui.show_memory_locations && h.state().ui.show_undo_history);
+    soundcraft_ui_egui::docking::validate(&h.state().ui.docking).unwrap();
 }

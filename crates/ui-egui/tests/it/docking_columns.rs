@@ -67,7 +67,7 @@ fn default_layouts_put_the_side_lists_in_full_height_dock_columns() {
     h.run_steps(3);
     let tracks = h.get_by_role_and_label(Role::Tab, "Tracks and Groups").rect();
     let clips = h.get_by_role_and_label(Role::Tab, "Clips").rect();
-    let midi = h.ctx.data(|data| data.get_temp::<Rect>(egui::Id::new("soundcraft-midi-body"))).unwrap();
+    let midi = h.ctx.data(|data| data.get_temp::<Rect>(egui::Id::unique("soundcraft-midi-body"))).unwrap();
     assert!(tracks.left() < TRACKS_WIDTH && clips.right() > width - CLIPS_WIDTH, "tracks {tracks:?}, clips {clips:?}");
     assert!(midi.left() >= TRACKS_WIDTH && midi.right() <= width - CLIPS_WIDTH, "midi {midi:?}");
     assert!((midi.height() - MIDI_HEIGHT).abs() < 1.0 && midi.top() > clips.bottom(), "midi {midi:?}");
@@ -167,6 +167,40 @@ fn a_panel_without_a_recorded_place_reopens_at_its_default_place() {
     let groups: Vec<_> = dock_columns(&h, Side::Start).iter().flat_map(|column| column.groups.iter().map(|group| group.panels.clone())).collect();
     assert_eq!(groups, [vec![Panel::History, Panel::Tracks]]);
     assert_eq!(h.state().ui.docking.layout.panel_state(&Panel::Tracks), craft_ui::docking::PanelState::Front);
+}
+
+/// A hidden list or editor whose recorded anchor has disappeared reopens at its default place
+/// instead of where craft-ui opens a panel it cannot restore.
+#[test]
+fn a_recorded_place_whose_anchor_is_gone_reopens_at_its_default_place() {
+    use craft_ui::docking::{Action, Permissions, Placement, Zone};
+    let allow = |_: &Panel| Permissions::default();
+    let mut state = UiState::default();
+    // Stale saved locations: their recorded anchor closed without leaving a place to follow.
+    for panel in [Panel::Clips, Panel::Midi, Panel::Tracks] {
+        state.docking.apply(Action::Close { panel }, allow).unwrap();
+    }
+    state.docking.hidden.retain(|(panel, _)| *panel != Panel::Tracks);
+    for (_, location) in state.docking.hidden.iter_mut().filter(|(panel, _)| matches!(panel, Panel::Clips | Panel::Midi)) {
+        location.anchor = Some(Panel::Tracks);
+        location.placement = Placement::Split(Zone::Left);
+        location.sibling.clear();
+        location.floating = None;
+    }
+    docking::validate(&state.docking).unwrap();
+    state.show_clip_list = false;
+    state.show_midi_editor = false;
+    state.show_tracks_list = false;
+    let mut h = harness(Some(state), 1400.0, 1.0);
+    assert!(!h.state().ui.docking.layout.contains(&Panel::Tracks), "app sync keeps the stale anchor absent");
+    h.state_mut().run("ui.dock", json!({"operation":"open","panel":"clips"})).unwrap();
+    h.state_mut().run("ui.dock", json!({"operation":"open","panel":"midi"})).unwrap();
+    h.run_steps(4);
+    assert_eq!(dock_columns(&h, Side::End), [Column::new(vec![Group::new(vec![Panel::Clips], 0)], CLIPS_WIDTH)]);
+    let midi = h.state().ui.docking.layout.location(&Panel::Midi).unwrap();
+    assert_eq!((midi.anchor, midi.placement), (Some(Panel::Canvas), Placement::Split(Zone::Bottom)));
+    assert!(h.state().ui.show_clip_list && h.state().ui.show_midi_editor);
+    docking::validate(&h.state().ui.docking).unwrap();
 }
 
 /// A workspace as releases before dock columns saved it: no layout version, the lists in split
