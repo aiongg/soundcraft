@@ -178,7 +178,7 @@ fn set_visible(workspace: &mut Workspace, panel: Panel, visible: bool) -> Result
         if !visible {
             return next.apply(Action::Close { panel }, permissions).map(drop);
         }
-        if next.set_visible(panel, true, None, permissions).is_ok() {
+        if next.hidden.iter().any(|(hidden, _)| *hidden == panel) && next.set_visible(panel, true, None, permissions).is_ok() {
             return Ok(());
         }
         next.apply(Action::OpenAt { panel, anchor: Panel::Canvas, placement: Placement::Split(panel.default_side()) }, permissions).map(drop)

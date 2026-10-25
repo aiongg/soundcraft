@@ -60,10 +60,14 @@ fn real_drag_float_close_reopen_reload_retains_transport_and_mixer_commands() {
     assert_eq!(serde_json::to_value(&reloaded.state().ui.docking).unwrap(), expected);
     reloaded.state_mut().run("ui.dock", json!({"operation":"move","panel":"clips","target":"tracks","zone":"center"})).unwrap();
     reloaded.run_steps(4);
-    // The narrow Tracks frame shows the active Clips tab and lists Tracks under "…".
-    reloaded.get_by_label("Panels").click();
-    reloaded.run_steps(3);
-    reloaded.get_by_label("Tracks and Groups").click();
+    // A Tracks frame too narrow for both tabs lists Tracks under the "Panels" overflow.
+    if let Some(overflow) = reloaded.query_by_label("Panels") {
+        overflow.click();
+        reloaded.run_steps(3);
+        reloaded.get_by_label("Tracks and Groups").click();
+    } else {
+        reloaded.get_by_role_and_label(egui::accesskit::Role::Tab, "Tracks and Groups").click();
+    }
     reloaded.run_steps(3);
     assert_eq!(reloaded.state().ui.docking.layout.panel_state(&Panel::Tracks), craft_ui::docking::PanelState::Front);
     reloaded.get_by_label("Trim (F6)").click();
