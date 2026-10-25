@@ -279,3 +279,19 @@ fn split_frame_settings_load_as_the_dock_defaults_and_dock_layouts_round_trip() 
     let h = harness(Some(loaded), 1400.0, 1.0);
     assert_eq!(h.state().ui.docking, saved.docking);
 }
+
+#[test]
+fn a_floating_list_closed_beside_its_shown_dock_reopens_floating() {
+    let mut h = harness(None, 1400.0, 1.0);
+    // Tracks joins Clips in the end dock, so the end dock stays shown after Clips floats.
+    h.state_mut().run("ui.dock", json!({"operation":"move","panel":"tracks","target":"clips","zone":"center"})).unwrap();
+    h.state_mut().run("ui.dock", json!({"operation":"float","panel":"clips","rect":[300,200,260,320]})).unwrap();
+    h.run_steps(4);
+    let rect = h.state().ui.docking.layout.floating.iter().find(|w| w.contains(&Panel::Clips)).unwrap().rect;
+    assert!(dock_columns(&h, Side::End).iter().any(|c| c.groups.iter().any(|g| g.panels.contains(&Panel::Tracks))));
+    h.state_mut().run("ui.dock", json!({"operation":"close","panel":"clips"})).unwrap();
+    h.run_steps(4);
+    h.state_mut().run("ui.dock", json!({"operation":"open","panel":"clips"})).unwrap();
+    h.run_steps(4);
+    assert_eq!(h.state().ui.docking.layout.floating.iter().find(|w| w.contains(&Panel::Clips)).map(|w| w.rect), Some(rect));
+}
