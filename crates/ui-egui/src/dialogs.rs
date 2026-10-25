@@ -1095,10 +1095,6 @@ fn audiosuite_window(app: &mut SoundApp, ctx: &egui::Context) {
                     let v = params.entry("semitones".into()).or_insert(0.0);
                     ui.add(egui::Slider::new(v, -24.0..=24.0).text("Semitones"));
                 }
-                "varispeed" => {
-                    let v = params.entry("speed".into()).or_insert(1.0);
-                    ui.add(egui::Slider::new(v, 0.25..=4.0).text("Speed"));
-                }
                 "speed_ramp" => {
                     for (id, label, default, choices) in SPEED_RAMP_CHOICES {
                         let v = params.entry(id.to_string()).or_insert(default);
