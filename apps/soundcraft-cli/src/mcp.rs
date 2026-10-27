@@ -1,8 +1,8 @@
-use super::error::fail;
+use super::error::{CliError, UsageError};
 use soundcraft_automation::{Headless, Remote, mcp::Server};
 use soundcraft_engine::Engine;
 use soundcraft_engine::file_access::{self, AutomationRoots};
-use std::process::ExitCode;
+use std::io::Write;
 
 /// What `mcp` was asked for.
 struct McpArgs {
@@ -13,7 +13,7 @@ struct McpArgs {
 
 /// Parse the `mcp` options up front: a malformed or misspelled root flag must not leave the
 /// server running unconfined.
-fn parse_mcp_args(args: &[String]) -> Result<McpArgs, String> {
+fn parse_mcp_args(args: &[String]) -> Result<McpArgs, CliError> {
     let mut connect = None;
     let mut demo = false;
     let mut roots_args = crate::automation_args::AutomationArgs::default();
@@ -23,31 +23,27 @@ fn parse_mcp_args(args: &[String]) -> Result<McpArgs, String> {
             continue;
         }
         match a.as_str() {
-            "--connect" => connect = Some(it.next().ok_or("--connect needs a port or host:port")?),
+            "--connect" => connect = Some(it.next().ok_or(UsageError::ConnectNeedsPort)?),
             "--demo" => demo = true,
-            other if other.starts_with("--automation-") => return Err(format!("unknown mcp option `{other}`")),
+            other if other.starts_with("--automation-") => return Err(UsageError::UnknownMcpOption(other.to_owned()).into()),
             _ => {}
         }
     }
     let read: Vec<&std::path::Path> = roots_args.read_roots.iter().map(std::path::PathBuf::as_path).collect();
     let write: Vec<&std::path::Path> = roots_args.write_roots.iter().map(std::path::PathBuf::as_path).collect();
-    let roots = AutomationRoots::new(&read, &write)?;
+    let roots = AutomationRoots::new(&read, &write).map_err(CliError::Roots)?;
     if roots.is_some() && connect.is_some() {
-        return Err("--automation-read-root and --automation-write-root confine the in-process server; a running app is not confined by them, \
-so drop --connect (or use --connect without the roots)"
-            .into());
+        return Err(UsageError::RootsWithConnect.into());
     }
     Ok(McpArgs { connect, demo, roots })
 }
 
-pub(crate) fn mcp(args: &[String]) -> ExitCode {
-    let McpArgs { connect, demo, roots } = match parse_mcp_args(args) {
-        Ok(a) => a,
-        Err(err) => return fail(err),
-    };
+/// Serves on the process's real stdin and stdout; only the notes go to `err`.
+pub(crate) fn mcp(args: &[String], err: &mut dyn Write) -> Result<(), CliError> {
+    let McpArgs { connect, demo, roots } = parse_mcp_args(args)?;
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
-    let r = if let Some(port) = connect {
+    let served = if let Some(port) = connect {
         let mut s = Server::new(Remote::new(&port));
         s.serve(stdin.lock(), stdout.lock())
     } else {
@@ -57,14 +53,11 @@ pub(crate) fn mcp(args: &[String]) -> ExitCode {
         if let Some(roots) = roots {
             // Every thread of this process, not only the server's: nothing reaches past the roots.
             file_access::confine_process(roots.clone());
-            eprintln!("soundcraft-cli: files confined: {}", roots.describe());
+            outln!(err, "soundcraft-cli: files confined: {}", roots.describe());
             h = h.with_automation_roots(Some(roots));
         }
         let mut s = Server::new(h);
         s.serve(stdin.lock(), stdout.lock())
     };
-    match r {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => fail(e),
-    }
+    served.map_err(CliError::Serve)
 }

@@ -1,35 +1,17 @@
 use super::args::{Options, arg_value, check_options};
-use super::error::fail;
+use super::error::{CliError, ConvertError, UsageError};
 use std::io::Write;
-use std::process::ExitCode;
 
-pub(crate) fn convert(args: &[String]) -> ExitCode {
-    let (Some(input), Some(output)) = (args.first(), args.get(1)) else { return fail("convert IN OUT") };
+pub(crate) fn convert(args: &[String], out: &mut dyn Write) -> Result<(), CliError> {
+    let (Some(input), Some(output)) = (args.first(), args.get(1)) else { return Err(UsageError::Convert.into()) };
     const OPTIONS: &Options = &[("--rate", true), ("--bit-depth", true), ("--normalize", false), ("--dither", false), ("--no-dither", false)];
-    if let Err(e) = check_options(&args[2..], OPTIONS) {
-        return fail(e);
-    }
-    let rate = match parse_rate(arg_value(args, "--rate").as_deref()) {
-        Ok(r) => r,
-        Err(e) => return fail(e),
-    };
-    let bit_depth = match parse_bit_depth(arg_value(args, "--bit-depth").as_deref()) {
-        Ok(b) => b,
-        Err(e) => return fail(e),
-    };
-    let dither_flag = match parse_dither(args) {
-        Ok(d) => d,
-        Err(e) => return fail(e),
-    };
-    let bytes = match std::fs::read(input) {
-        Ok(b) => b,
-        Err(e) => return fail(format!("{input}: {e}")),
-    };
+    check_options(&args[2..], OPTIONS)?;
+    let rate = parse_rate(arg_value(args, "--rate").as_deref())?;
+    let bit_depth = parse_bit_depth(arg_value(args, "--bit-depth").as_deref())?;
+    let dither_flag = parse_dither(args)?;
+    let bytes = std::fs::read(input).map_err(|source| CliError::File { path: input.clone(), source })?;
     let ext = std::path::Path::new(input).extension().and_then(std::ffi::OsStr::to_str);
-    let (info, mut buf) = match soundcraft_audio_io::decode(&bytes, ext) {
-        Ok(x) => x,
-        Err(e) => return fail(format!("{input}: {e}")),
-    };
+    let (info, mut buf) = soundcraft_audio_io::decode(&bytes, ext).map_err(|source| CliError::Audio { path: input.clone(), source })?;
     if let Some(rate) = rate {
         buf.channels = soundcraft_dsp::offline::resample(&buf.channels, buf.sample_rate, rate);
         buf.sample_rate = rate;
@@ -42,41 +24,38 @@ pub(crate) fn convert(args: &[String]) -> ExitCode {
     let dither = dither_flag.unwrap_or_else(|| auto_dither(info.sample_format, bit_depth, processed));
     let out_ext = std::path::Path::new(output).extension().and_then(std::ffi::OsStr::to_str).unwrap_or("wav").to_ascii_lowercase();
     let Some(format) = soundcraft_audio_io::encode_format_for(&out_ext) else {
-        return fail(format!("{output}: cannot write `.{out_ext}` files (supported: {})", soundcraft_audio_io::ENCODE_EXTENSIONS));
+        return Err(ConvertError::OutputFormat { output: output.clone(), ext: out_ext }.into());
     };
     let opts = soundcraft_audio_io::EncodeOptions { format, bit_depth, dither, bwf: None };
-    match soundcraft_audio_io::encode(&buf, &opts).map_err(|e| e.to_string()).and_then(|b| std::fs::write(output, b).map_err(|e| e.to_string())) {
-        Ok(()) => {
-            outln!("wrote {output} ({} ch, {} Hz, {:.2} s)", buf.num_channels(), buf.sample_rate, buf.duration_secs());
-            ExitCode::SUCCESS
-        }
-        Err(e) => fail(e),
-    }
+    let bytes = soundcraft_audio_io::encode(&buf, &opts).map_err(|source| CliError::Audio { path: output.clone(), source })?;
+    std::fs::write(output, bytes).map_err(|source| CliError::File { path: output.clone(), source })?;
+    outln!(out, "wrote {output} ({} ch, {} Hz, {:.2} s)", buf.num_channels(), buf.sample_rate, buf.duration_secs());
+    Ok(())
 }
 
-fn parse_rate(v: Option<&str>) -> Result<Option<u32>, String> {
+fn parse_rate(v: Option<&str>) -> Result<Option<u32>, ConvertError> {
     match v {
         None => Ok(None),
         Some(r) => match r.parse::<u32>() {
             Ok(hz) if hz > 0 => Ok(Some(hz)),
-            _ => Err(format!("--rate: expected a sample rate in Hz, got `{r}`")),
+            _ => Err(ConvertError::Rate(r.to_owned())),
         },
     }
 }
 
-fn parse_bit_depth(v: Option<&str>) -> Result<soundcraft_audio_io::BitDepth, String> {
+fn parse_bit_depth(v: Option<&str>) -> Result<soundcraft_audio_io::BitDepth, ConvertError> {
     match v {
         None | Some("24") => Ok(soundcraft_audio_io::BitDepth::Int24),
         Some("16") => Ok(soundcraft_audio_io::BitDepth::Int16),
         Some("32") | Some("32f") => Ok(soundcraft_audio_io::BitDepth::Float32),
-        Some(b) => Err(format!("--bit-depth: expected 16, 24 or 32f, got `{b}`")),
+        Some(b) => Err(ConvertError::BitDepth(b.to_owned())),
     }
 }
 
 /// `--dither` / `--no-dither`: `Some` when the caller chose, `None` to decide from the depths.
-fn parse_dither(args: &[String]) -> Result<Option<bool>, String> {
+fn parse_dither(args: &[String]) -> Result<Option<bool>, ConvertError> {
     match (args.iter().any(|a| a == "--dither"), args.iter().any(|a| a == "--no-dither")) {
-        (true, true) => Err("--dither and --no-dither: choose one".into()),
+        (true, true) => Err(ConvertError::DitherConflict),
         (true, false) => Ok(Some(true)),
         (false, true) => Ok(Some(false)),
         (false, false) => Ok(None),

@@ -1,9 +1,8 @@
 use super::args::arg_value;
-use super::error::fail;
+use super::error::{CliError, UsageError};
 use serde_json::{Value, json};
 use soundcraft_automation::{Backend, Remote};
 use std::io::Write;
-use std::process::ExitCode;
 
 /// Control-channel methods. Every other dotted id is an engine command.
 fn is_control_method(method: &str) -> bool {
@@ -38,7 +37,7 @@ fn app_request(method: &str, params: Value) -> (String, Value) {
     }
 }
 
-pub(crate) fn app(args: &[String]) -> ExitCode {
+pub(crate) fn app(args: &[String], out: &mut dyn Write) -> Result<(), CliError> {
     let port = arg_value(args, "--port").or_else(|| std::env::var("SOUNDCRAFT_CONTROL_PORT").ok()).unwrap_or_else(|| "7979".into());
     let positional: Vec<&String> = args
         .iter()
@@ -46,24 +45,17 @@ pub(crate) fn app(args: &[String]) -> ExitCode {
         .filter(|(i, a)| !(a.starts_with("--") || (*i > 0 && args.get(i - 1).is_some_and(|p| p == "--port"))))
         .map(|(_, a)| a)
         .collect();
-    let Some(method) = positional.first() else { return fail("app [--port P] METHOD [JSON]") };
+    let Some(method) = positional.first() else { return Err(UsageError::App.into()) };
     let params = match positional.get(1) {
-        Some(p) => match serde_json::from_str::<Value>(p) {
-            Ok(v) => v,
-            Err(err) => return fail(format!("{method}: bad JSON: {err}")),
-        },
+        Some(p) => serde_json::from_str::<Value>(p).map_err(|source| CliError::CmdJson { id: (*method).clone(), source })?,
         None => json!({}),
     };
     let mut r = Remote::new(&port);
     // A bare command id is shorthand for engine.execute. Control-channel methods stay methods.
     let (m, p) = app_request(method, params);
-    match r.call(&m, p) {
-        Ok(v) => {
-            outln!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
-            ExitCode::SUCCESS
-        }
-        Err(e) => fail(e),
-    }
+    let v = r.call(&m, p).map_err(CliError::Remote)?;
+    outln!(out, "{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+    Ok(())
 }
 
 #[cfg(test)]

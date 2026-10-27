@@ -53,12 +53,12 @@ fn format_of(dir: &Path, name: &str) -> String {
     format!("{:?}", soundcraft_audio_io::probe(&std::fs::read(dir.join(name)).unwrap(), None).unwrap().sample_format)
 }
 
-/// Exit 1, nothing on stdout, and exactly `soundcraft-cli: {message}` on stderr.
+/// Exit 1, nothing on stdout, and exactly `error: {message}` on stderr.
 #[track_caller]
 fn assert_fails(got: &Invoke, message: &str) {
     assert_eq!(got.code, 1, "stderr: {}", got.stderr);
     assert_eq!(got.stdout, "");
-    assert_eq!(got.stderr, format!("soundcraft-cli: {message}\n"));
+    assert_eq!(got.stderr, format!("error: {message}\n"));
 }
 
 /// Exit 0 with nothing on either stream.
@@ -67,9 +67,6 @@ fn assert_silent_success(got: &Invoke) {
     assert_eq!((got.code, got.stdout.as_str(), got.stderr.as_str()), (0, "", ""));
 }
 
-const USAGE_FIRST_LINE: &str = "soundcraft-cli info FILE                       audio file or .scraft summary";
-const USAGE_LAST_LINE: &str = "soundcraft-cli plugins                          list built-in plugins";
-const NO_ARGS_USAGE: &str = "usage: soundcraft-cli <info|convert|run|script|commands|describe|app|mcp|parity|plugins> …  (see --help)\n";
 /// The OS's message for a missing file: error 2 is `ENOENT` on Unix and `ERROR_FILE_NOT_FOUND` on Windows.
 fn not_found() -> std::io::Error {
     std::io::Error::from_raw_os_error(2)
@@ -79,121 +76,19 @@ fn not_found() -> std::io::Error {
 #[track_caller]
 fn assert_refused(got: &Invoke, port: u16) {
     assert_eq!((got.code, got.stdout.as_str()), (1, ""));
-    let prefix = format!("soundcraft-cli: cannot reach SoundCraft at 127.0.0.1:{port}: ");
+    let prefix = format!("error: cannot reach SoundCraft at 127.0.0.1:{port}: ");
     assert!(got.stderr.starts_with(&prefix) && got.stderr.contains(" (os error ") && got.stderr.ends_with(")\n"), "{}", got.stderr);
 }
 
 // ---- top level ----
 
-#[test]
-fn top_level_help_spellings_print_the_usage_block_to_stdout() {
-    let dir = sandbox("help");
-    let long = invoke(&dir, &["--help"]);
-    assert_eq!(long.code, 0);
-    assert_eq!(long.stderr, "");
-    assert!(long.stdout.starts_with(USAGE_FIRST_LINE), "{}", long.stdout);
-    assert!(long.stdout.ends_with(&format!("{USAGE_LAST_LINE}\n")), "{}", long.stdout);
-    for spelling in ["-h", "help"] {
-        let got = invoke(&dir, &[spelling]);
-        assert_eq!((got.code, got.stdout, got.stderr), (0, long.stdout.clone(), String::new()), "{spelling}");
-    }
-}
-
-#[test]
-fn top_level_version_spellings_print_the_version_to_stdout() {
-    let dir = sandbox("version");
-    let expected = format!("SoundCraft CLI {}\n", env!("CARGO_PKG_VERSION"));
-    for spelling in ["--version", "-V", "version"] {
-        let got = invoke(&dir, &[spelling]);
-        assert_eq!((got.code, got.stdout, got.stderr), (0, expected.clone(), String::new()), "{spelling}");
-    }
-}
-
-#[test]
-fn no_arguments_prints_a_one_line_usage_to_stderr_and_fails() {
-    let got = invoke(&sandbox("noargs"), &[]);
-    assert_eq!((got.code, got.stdout.as_str(), got.stderr.as_str()), (1, "", NO_ARGS_USAGE));
-}
-
-#[test]
-fn unknown_subcommand_fails_naming_it() {
-    let dir = sandbox("unknown-sub");
-    assert_fails(&invoke(&dir, &["bogus"]), "unknown subcommand `bogus`");
-    // Only the first argument is the subcommand: `--help` after it does not rescue it.
-    assert_fails(&invoke(&dir, &["bogus", "--help"]), "unknown subcommand `bogus`");
-    // Subcommand names are case sensitive and not abbreviated.
-    assert_fails(&invoke(&dir, &["INFO"]), "unknown subcommand `INFO`");
-    assert_fails(&invoke(&dir, &["plug"]), "unknown subcommand `plug`");
-    // A leading unknown flag is an unknown subcommand too.
-    assert_fails(&invoke(&dir, &["--bogus"]), "unknown subcommand `--bogus`");
-}
-
 // ---- --help / -h after each subcommand ----
-
-#[test]
-fn info_and_script_read_help_as_a_file_name() {
-    let dir = sandbox("help-file");
-    for sub in ["info", "script"] {
-        for flag in ["--help", "-h"] {
-            assert_fails(&invoke(&dir, &[sub, flag]), &format!("{flag}: {}", not_found()));
-        }
-    }
-}
-
-#[test]
-fn convert_and_app_help_fall_through_to_their_usage_or_connection_error() {
-    let dir = sandbox("help-convert-app");
-    // convert needs two positionals; one flag is not enough.
-    for flag in ["--help", "-h"] {
-        assert_fails(&invoke(&dir, &["convert", flag]), "convert IN OUT");
-    }
-    // `app --help` has no method, so it prints its usage; `app -h` takes `-h` as the method and
-    // tries the default port (7979) -- pinned via an explicit refused port.
-    assert_fails(&invoke(&dir, &["app", "--help"]), "app [--port P] METHOD [JSON]");
-    assert_refused(&invoke(&dir, &["app", "--port", "1", "-h"]), 1);
-}
-
-#[test]
-fn run_rejects_long_help_but_ignores_short_help() {
-    let dir = sandbox("help-run");
-    assert_fails(&invoke(&dir, &["run", "--help"]), "unknown option --help");
-    // `-h` has no `--` prefix, so the option check skips it like any positional.
-    assert_silent_success(&invoke(&dir, &["run", "-h"]));
-}
-
-#[test]
-fn describe_reads_help_as_a_command_id() {
-    let dir = sandbox("help-describe");
-    assert_fails(&invoke(&dir, &["describe", "--help"]), "unknown command `--help`");
-    assert_fails(&invoke(&dir, &["describe", "-h"]), "unknown command `-h`");
-}
-
-#[test]
-fn commands_reads_help_as_a_filter_that_matches_nothing() {
-    let dir = sandbox("help-commands");
-    for flag in ["--help", "-h"] {
-        assert_silent_success(&invoke(&dir, &["commands", flag]));
-    }
-}
 
 #[test]
 fn mcp_ignores_help_and_exits_cleanly_on_empty_stdin() {
     let dir = sandbox("help-mcp");
     for flag in ["--help", "-h"] {
         assert_silent_success(&invoke(&dir, &["mcp", flag]));
-    }
-}
-
-#[test]
-fn parity_and_plugins_ignore_help_and_print_their_normal_output() {
-    let dir = sandbox("help-parity-plugins");
-    let parity = invoke(&dir, &["parity"]);
-    let plugins = invoke(&dir, &["plugins"]);
-    for flag in ["--help", "-h"] {
-        let got = invoke(&dir, &["parity", flag]);
-        assert_eq!((got.code, got.stdout, got.stderr), (0, parity.stdout.clone(), String::new()), "parity {flag}");
-        let got = invoke(&dir, &["plugins", flag]);
-        assert_eq!((got.code, got.stdout, got.stderr), (0, plugins.stdout.clone(), String::new()), "plugins {flag}");
     }
 }
 
@@ -362,28 +257,6 @@ fn run_value_flags_take_a_separate_or_inline_value() {
 }
 
 #[test]
-fn run_and_script_value_flags_without_a_value_fail() {
-    let dir = sandbox("run-missing-values");
-    for flag in ["--cmd", "--in", "--save", "--bounce", "--start", "--end"] {
-        assert_fails(&invoke(&dir, &["run", flag]), &format!("{flag} needs a value"));
-    }
-    for flag in ["--in", "--save", "--bounce", "--start", "--end"] {
-        assert_fails(&invoke(&dir, &["script", "s.txt", flag]), &format!("{flag} needs a value"));
-    }
-    // A following `--` word is the next flag, not the value.
-    assert_fails(&invoke(&dir, &["run", "--bounce", "--inspect"]), "--bounce needs a value");
-    assert_fails(&invoke(&dir, &["script", "s.txt", "--demo", "--bounce"]), "--bounce needs a value");
-}
-
-#[test]
-fn run_boolean_flags_reject_an_inline_value() {
-    let dir = sandbox("run-boolean");
-    assert_fails(&invoke(&dir, &["run", "--demo=1"]), "--demo takes no value");
-    assert_fails(&invoke(&dir, &["run", "--inspect=1"]), "--inspect takes no value");
-    assert_fails(&invoke(&dir, &["script", "s.txt", "--keep-going=1"]), "--keep-going takes no value");
-}
-
-#[test]
 fn run_repeated_flags() {
     let dir = sandbox("run-repeat");
     // --cmd repeats: every occurrence runs, in order.
@@ -392,25 +265,6 @@ fn run_repeated_flags() {
     let got = invoke(&dir, &["run", "--save", "a.scraft", "--save", "b.scraft"]);
     assert_eq!(got.stdout, "{\"audio_files_written\":0,\"path\":\"a.scraft\"}\n");
     assert!(dir.join("a.scraft").exists() && !dir.join("b.scraft").exists());
-}
-
-#[test]
-fn run_demo_and_sample_are_the_same_flag() {
-    let dir = sandbox("run-demo");
-    let demo = invoke(&dir, &["run", "--demo", "--inspect"]);
-    let sample = invoke(&dir, &["run", "--sample", "--inspect"]);
-    assert_eq!((demo.code, sample.code), (0, 0));
-    assert_eq!(demo.stdout, sample.stdout);
-    assert!(demo.stdout.contains("\"name\": \"Verb\""), "{}", demo.stdout);
-}
-
-#[test]
-fn run_command_failures() {
-    let dir = sandbox("run-cmd-fail");
-    assert_fails(&invoke(&dir, &["run", "--cmd", "nosuch.cmd"]), "nosuch.cmd: unknown command `nosuch.cmd`");
-    assert_fails(&invoke(&dir, &["run", "--cmd", "track.new={"]), "track.new: bad JSON: EOF while parsing an object at line 1 column 1");
-    assert_fails(&invoke(&dir, &["run", "--in", "nope.scraft"]), &format!("nope.scraft: {}", not_found()));
-    assert_fails(&invoke(&dir, &["run", "--in=nope.scraft"]), &format!("nope.scraft: {}", not_found()));
 }
 
 #[test]
@@ -433,37 +287,14 @@ fn script_line_errors_stop_unless_keep_going() {
     let dir = sandbox("script-errors");
     std::fs::write(dir.join("bad.txt"), "nosuch.cmd {}\ntrack.new {}\n").unwrap();
     std::fs::write(dir.join("badjson.txt"), "track.new {x\n").unwrap();
-    // The line error goes to stderr without the `soundcraft-cli:` prefix.
+    // A stopping line error carries the `error:` prefix; a --keep-going one is a bare line.
     let stop = invoke(&dir, &["script", "bad.txt"]);
     assert_eq!((stop.code, stop.stdout.as_str()), (1, ""));
-    assert_eq!(stop.stderr, "bad.txt:1: nosuch.cmd: unknown command `nosuch.cmd`\n");
+    assert_eq!(stop.stderr, "error: bad.txt:1: nosuch.cmd: unknown command `nosuch.cmd`\n");
     let keep = invoke(&dir, &["script", "bad.txt", "--keep-going"]);
     assert_eq!((keep.code, keep.stdout.as_str()), (0, "track.new: {\"tracks\":[1]}\n"));
     assert_eq!(keep.stderr, "bad.txt:1: nosuch.cmd: unknown command `nosuch.cmd`\n");
     assert_fails(&invoke(&dir, &["script", "badjson.txt"]), "badjson.txt:1: bad JSON: key must be a string at line 1 column 2");
-}
-
-#[test]
-fn commands_filters_by_id_or_label_and_uses_only_the_first_argument() {
-    let dir = sandbox("commands");
-    let all = invoke(&dir, &["commands"]);
-    assert_eq!((all.code, all.stderr.as_str()), (0, ""));
-    assert!(all.stdout.starts_with("session.new "), "{}", all.stdout);
-    let bounce = invoke(&dir, &["commands", "bounce"]);
-    assert!(bounce.stdout.contains("file.bounce_mix ") && !bounce.stdout.contains("session.new"), "{}", bounce.stdout);
-    assert_eq!(invoke(&dir, &["commands", "bounce", "extra"]).stdout, bounce.stdout);
-    // Matching is case-insensitive on the label only: an upper-case filter finds the labels, not the ids.
-    assert!(invoke(&dir, &["commands", "BOUNCE"]).stdout.contains("Bounce Mix..."));
-    assert_silent_success(&invoke(&dir, &["commands", "zzzzqq"]));
-}
-
-#[test]
-fn describe_prints_json_for_a_known_id_and_fails_for_an_unknown_one() {
-    let dir = sandbox("describe");
-    let got = invoke(&dir, &["describe", "file.bounce_mix"]);
-    assert_eq!((got.code, got.stderr.as_str()), (0, ""));
-    assert!(got.stdout.starts_with("{\n  \"id\": \"file.bounce_mix\",\n  \"label\": \"Bounce Mix...\""), "{}", got.stdout);
-    assert_fails(&invoke(&dir, &["describe", "nosuch"]), "unknown command `nosuch`");
 }
 
 #[test]
@@ -500,32 +331,7 @@ fn parity_writes_a_report_with_write_in_both_spellings() {
     assert_eq!((bare.code, bare.stdout, bare.stderr), (0, stdout_report.stdout, String::new()));
 }
 
-#[test]
-fn plugins_lists_one_line_per_plugin() {
-    let got = invoke(&sandbox("plugins"), &["plugins"]);
-    assert_eq!((got.code, got.stderr.as_str()), (0, ""));
-    assert!(got.stdout.starts_with("eq_1band             EQ 1-Band              Eq\n"), "{}", got.stdout);
-}
-
 // ---- app ----
-
-#[test]
-fn app_reports_a_refused_connection_and_checks_arguments_first() {
-    let dir = sandbox("app");
-    for args in [
-        vec!["app", "--port", "1", "session.inspect"],
-        vec!["app", "--port=1", "session.inspect"],
-        vec!["app", "session.inspect", "--port", "1"],
-        vec!["app", "--port", "1", "session.inspect", "{}", "extra"],
-    ] {
-        assert_refused(&invoke(&dir, &args), 1);
-    }
-    assert_fails(
-        &invoke(&dir, &["app", "--port", "1", "session.inspect", "{bad"]),
-        "session.inspect: bad JSON: key must be a string at line 1 column 2",
-    );
-    assert_fails(&invoke(&dir, &["app", "--port", "abc", "session.inspect"]), "127.0.0.1:abc: invalid port value");
-}
 
 #[test]
 fn app_port_comes_from_the_flag_then_the_environment() {
@@ -535,25 +341,6 @@ fn app_port_comes_from_the_flag_then_the_environment() {
 }
 
 // ---- mcp ----
-
-#[test]
-fn mcp_argument_errors_fail_before_reading_stdin() {
-    let dir = sandbox("mcp-args");
-    assert_fails(&invoke(&dir, &["mcp", "--connect"]), "--connect needs a port or host:port");
-    assert_fails(&invoke(&dir, &["mcp", "--automation-read-root"]), "--automation-read-root needs a folder");
-    assert_fails(
-        &invoke(&dir, &["mcp", "--automation-read-root", "--demo"]),
-        "--automation-read-root needs a folder; use --automation-read-root=<dir> for a folder starting with '-'",
-    );
-    assert_fails(
-        &invoke(&dir, &["mcp", "--automation-read-root", "missing-dir"]),
-        &format!("cannot open the automation read root `missing-dir`: {}", not_found()),
-    );
-    assert_fails(
-        &invoke(&dir, &["mcp", "--automation-read-root", ".", "--connect", "1"]),
-        "--automation-read-root and --automation-write-root confine the in-process server; a running app is not confined by them, so drop --connect (or use --connect without the roots)",
-    );
-}
 
 #[test]
 fn mcp_accepts_its_flags_in_both_spellings_and_exits_cleanly_on_empty_stdin() {

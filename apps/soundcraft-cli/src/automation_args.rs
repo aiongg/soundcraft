@@ -3,6 +3,17 @@
 
 use std::path::PathBuf;
 
+/// A root flag without a usable folder.
+#[derive(Debug, PartialEq, thiserror::Error)]
+pub enum RootFlagError {
+    #[error("{0} needs a folder")]
+    Missing(String),
+    #[error("{flag} needs a folder; use {flag}=<dir> for a folder starting with '-'")]
+    StartsWithDash { flag: String },
+    #[error("{0} needs a non-empty folder")]
+    Empty(String),
+}
+
 #[derive(Default)]
 pub struct AutomationArgs {
     pub read_roots: Vec<PathBuf>,
@@ -12,7 +23,7 @@ pub struct AutomationArgs {
 impl AutomationArgs {
     /// Returns whether this argument is a root flag. Each flag may be given more than once (#874),
     /// in either spelling (`--flag DIR`, `--flag=DIR`): every use adds a folder.
-    pub fn consume(&mut self, arg: &str, args: &mut impl Iterator<Item = String>) -> Result<bool, String> {
+    pub fn consume(&mut self, arg: &str, args: &mut impl Iterator<Item = String>) -> Result<bool, RootFlagError> {
         let (flag, inline) = arg.split_once('=').map_or((arg, None), |(flag, value)| (flag, Some(value)));
         let roots = match flag {
             "--automation-read-root" => &mut self.read_roots,
@@ -22,15 +33,15 @@ impl AutomationArgs {
         let value = match inline {
             Some(value) => value.to_owned(),
             None => {
-                let value = args.next().ok_or_else(|| format!("{flag} needs a folder"))?;
+                let value = args.next().ok_or_else(|| RootFlagError::Missing(flag.to_owned()))?;
                 if value.starts_with('-') {
-                    return Err(format!("{flag} needs a folder; use {flag}=<dir> for a folder starting with '-'"));
+                    return Err(RootFlagError::StartsWithDash { flag: flag.to_owned() });
                 }
                 value
             }
         };
         if value.is_empty() {
-            return Err(format!("{flag} needs a non-empty folder"));
+            return Err(RootFlagError::Empty(flag.to_owned()));
         }
         roots.push(value.into());
         Ok(true)

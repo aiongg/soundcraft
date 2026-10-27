@@ -1,26 +1,21 @@
 use super::args::{ENGINE_OPTIONS, arg_value, check_options};
-use super::error::fail;
+use super::error::{CliError, UsageError};
 use serde_json::{Value, json};
 use soundcraft_engine::Engine;
 use std::io::Write;
-use std::process::ExitCode;
 
 /// One stderr line per media file a session refers to but could not load (the exit code is unchanged).
-fn missing_warnings(missing: &[String]) -> Vec<String> {
-    missing.iter().map(|m| format!("warning: missing media: {m}")).collect()
-}
-
-pub(crate) fn warn_missing(missing: &[String]) {
-    for line in missing_warnings(missing) {
-        eprintln!("{line}");
+pub(crate) fn warn_missing(err: &mut dyn Write, missing: &[String]) {
+    for m in missing {
+        outln!(err, "warning: missing media: {m}");
     }
 }
 
-fn load_engine(args: &[String]) -> Result<Engine, String> {
+fn load_engine(args: &[String], err: &mut dyn Write) -> Result<Engine, CliError> {
     if let Some(p) = arg_value(args, "--in") {
         let mut e = Engine::default();
-        let missing = soundcraft_engine::io::open_session(&mut e, &p).map_err(|e| e.to_string())?;
-        warn_missing(&missing);
+        let missing = soundcraft_engine::io::open_session(&mut e, &p)?;
+        warn_missing(err, &missing);
         Ok(e)
     } else if args.iter().any(|a| a == "--demo" || a == "--sample") {
         Ok(soundcraft_engine::demo::demo_engine())
@@ -29,9 +24,9 @@ fn load_engine(args: &[String]) -> Result<Engine, String> {
     }
 }
 
-fn finish(e: &mut Engine, args: &[String]) -> ExitCode {
-    if let Some(out) = arg_value(args, "--bounce") {
-        let mut p = json!({"path": out});
+fn finish(e: &mut Engine, args: &[String], out: &mut dyn Write) -> Result<(), CliError> {
+    if let Some(path) = arg_value(args, "--bounce") {
+        let mut p = json!({"path": path});
         if let Some(s) = arg_value(args, "--start") {
             p["start"] = time_arg(&s);
         }
@@ -43,21 +38,17 @@ fn finish(e: &mut Engine, args: &[String]) -> ExitCode {
             p["start"] = json!(0);
             p["end"] = json!(e.session().content_end().max(1));
         }
-        match e.execute("file.bounce_mix", &p) {
-            Ok(v) => outln!("{v}"),
-            Err(err) => return fail(err),
-        }
+        let v = e.execute("file.bounce_mix", &p)?;
+        outln!(out, "{v}");
     }
     if let Some(path) = arg_value(args, "--save") {
-        match e.execute("session.save", &json!({"path": path, "replace": true})) {
-            Ok(v) => outln!("{v}"),
-            Err(err) => return fail(err),
-        }
+        let v = e.execute("session.save", &json!({"path": path, "replace": true}))?;
+        outln!(out, "{v}");
     }
     if args.iter().any(|a| a == "--inspect") {
-        outln!("{}", serde_json::to_string_pretty(&soundcraft_engine::inspect::session(e, false)).unwrap_or_default());
+        outln!(out, "{}", serde_json::to_string_pretty(&soundcraft_engine::inspect::session(e, false)).unwrap_or_default());
     }
-    ExitCode::SUCCESS
+    Ok(())
 }
 
 /// `12.5` → seconds; anything else is passed through as a time string.
@@ -66,22 +57,19 @@ fn time_arg(s: &str) -> Value {
 }
 
 /// `ID` or `ID=JSON` → command id and params; malformed JSON is an error, not `{}`.
-fn parse_cmd_spec(spec: &str) -> Result<(String, Value), String> {
+fn parse_cmd_spec(spec: &str) -> Result<(String, Value), CliError> {
     match spec.split_once('=') {
-        Some((id, p)) => serde_json::from_str::<Value>(p).map(|v| (id.to_string(), v)).map_err(|err| format!("{id}: bad JSON: {err}")),
+        Some((id, p)) => {
+            serde_json::from_str::<Value>(p).map(|v| (id.to_string(), v)).map_err(|source| CliError::CmdJson { id: id.to_string(), source })
+        }
         None => Ok((spec.to_string(), json!({}))),
     }
 }
 
-pub(crate) fn run(args: &[String]) -> ExitCode {
+pub(crate) fn run_cmds(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> Result<(), CliError> {
     let options: Vec<(&str, bool)> = ENGINE_OPTIONS.iter().copied().chain([("--cmd", true)]).collect();
-    if let Err(e) = check_options(args, &options) {
-        return fail(e);
-    }
-    let mut e = match load_engine(args) {
-        Ok(e) => e,
-        Err(err) => return fail(err),
-    };
+    check_options(args, &options)?;
+    let mut e = load_engine(args, err)?;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let spec = match a.strip_prefix("--cmd=") {
@@ -92,32 +80,21 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
             },
             None => continue,
         };
-        let (id, params) = match parse_cmd_spec(spec) {
-            Ok(v) => v,
-            Err(err) => return fail(err),
-        };
+        let (id, params) = parse_cmd_spec(spec)?;
         match e.execute(&id, &params) {
-            Ok(v) => outln!("{id}: {v}"),
-            Err(err) => return fail(format!("{id}: {err}")),
+            Ok(v) => outln!(out, "{id}: {v}"),
+            Err(source) => return Err(CliError::Command { id, source }),
         }
     }
-    finish(&mut e, args)
+    finish(&mut e, args, out)
 }
 
-pub(crate) fn script(args: &[String]) -> ExitCode {
-    let Some(path) = args.first() else { return fail("script FILE") };
+pub(crate) fn script(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> Result<(), CliError> {
+    let Some(path) = args.first() else { return Err(UsageError::Script.into()) };
     let options: Vec<(&str, bool)> = ENGINE_OPTIONS.iter().copied().chain([("--keep-going", false)]).collect();
-    if let Err(e) = check_options(&args[1..], &options) {
-        return fail(e);
-    }
-    let text = match std::fs::read_to_string(path) {
-        Ok(t) => t,
-        Err(e) => return fail(format!("{path}: {e}")),
-    };
-    let mut e = match load_engine(args) {
-        Ok(e) => e,
-        Err(err) => return fail(err),
-    };
+    check_options(&args[1..], &options)?;
+    let text = std::fs::read_to_string(path).map_err(|source| CliError::File { path: path.clone(), source })?;
+    let mut e = load_engine(args, err)?;
     let keep = args.iter().any(|a| a == "--keep-going");
     for (n, line) in text.lines().enumerate() {
         let line = line.trim();
@@ -125,21 +102,19 @@ pub(crate) fn script(args: &[String]) -> ExitCode {
             continue;
         }
         let (id, p) = line.split_once(char::is_whitespace).unwrap_or((line, "{}"));
-        let params = match serde_json::from_str::<Value>(p.trim()) {
-            Ok(v) => v,
-            Err(err) => return fail(format!("{path}:{}: bad JSON: {err}", n + 1)),
-        };
+        let params = serde_json::from_str::<Value>(p.trim()).map_err(|source| CliError::ScriptJson { path: path.clone(), line: n + 1, source })?;
         match e.execute(id, &params) {
-            Ok(v) => outln!("{id}: {v}"),
-            Err(err) => {
-                eprintln!("{path}:{}: {id}: {err}", n + 1);
+            Ok(v) => outln!(out, "{id}: {v}"),
+            Err(source) => {
+                let failure = CliError::ScriptLine { path: path.clone(), line: n + 1, id: id.to_owned(), source };
                 if !keep {
-                    return ExitCode::FAILURE;
+                    return Err(failure);
                 }
+                outln!(err, "{failure}");
             }
         }
     }
-    finish(&mut e, args)
+    finish(&mut e, args, out)
 }
 
 #[cfg(test)]
@@ -148,9 +123,11 @@ mod tests {
 
     #[test]
     fn missing_media_gets_one_warning_each() {
-        assert!(missing_warnings(&[]).is_empty());
-        let w = missing_warnings(&["a.wav".to_string(), "b.wav: decode failed".to_string()]);
-        assert_eq!(w, vec!["warning: missing media: a.wav", "warning: missing media: b.wav: decode failed"]);
+        let mut err = Vec::new();
+        warn_missing(&mut err, &[]);
+        assert!(err.is_empty());
+        warn_missing(&mut err, &["a.wav".to_string(), "b.wav: decode failed".to_string()]);
+        assert_eq!(String::from_utf8(err).unwrap(), "warning: missing media: a.wav\nwarning: missing media: b.wav: decode failed\n");
     }
 
     #[test]
@@ -161,7 +138,7 @@ mod tests {
 
     #[test]
     fn cmd_spec_rejects_truncated_json() {
-        let err = parse_cmd_spec("a.b={\"x\":").unwrap_err();
+        let err = parse_cmd_spec("a.b={\"x\":").unwrap_err().to_string();
         assert!(err.starts_with("a.b: bad JSON"), "{err}");
     }
 }
