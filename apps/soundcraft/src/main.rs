@@ -15,6 +15,7 @@ mod config;
 mod control_server;
 #[cfg(any(target_os = "windows", test))]
 mod graphics;
+mod launch_args;
 mod logging;
 #[cfg(target_os = "macos")]
 mod native_menu;
@@ -219,24 +220,12 @@ fn main() -> eframe::Result {
     // Engine) is captured; see `logging`.
     let logger = logging::install();
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.iter().any(|a| a == "--version" || a == "-V") {
+    let launch = launch_args::parse(&args, std::env::var("SOUNDCRAFT_CONTROL_PORT").ok().as_deref());
+    if launch.version {
         println!("SoundCraft {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
-    let demo = args.iter().any(|a| a == "--demo" || a == "--sample");
-    let no_audio = args.iter().any(|a| a == "--no-audio");
-    let control_port: Option<u16> = args
-        .iter()
-        .position(|a| a == "--control")
-        .and_then(|i| args.get(i + 1))
-        .and_then(|p| p.parse().ok())
-        .or_else(|| std::env::var("SOUNDCRAFT_CONTROL_PORT").ok().and_then(|p| p.parse().ok()));
-    let files: Vec<String> = args
-        .iter()
-        .enumerate()
-        .filter(|(i, a)| !(a.starts_with("--") || (i > &0 && args.get(i - 1).is_some_and(|p| p == "--control"))))
-        .map(|(_, a)| a.clone())
-        .collect();
+    let launch_args::LaunchArgs { demo, no_audio, control: control_port, files, .. } = launch;
     log::info!("SoundCraft {} ({} {})", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH);
     // The log file lives in the settings directory; opened after the arguments, so `--version`
     // leaves no file behind. Records logged until now are written to it first. Runs without
