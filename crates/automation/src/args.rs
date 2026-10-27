@@ -92,7 +92,7 @@ pub enum ControlPort {
 }
 
 /// The hosts a [`ControlPort::Local`] may name: the control server listens on 127.0.0.1 only.
-const LOOPBACK_HOSTS: [&str; 3] = ["127.0.0.1", "localhost", "[::1]"];
+const LOOPBACK_HOSTS: [&str; 2] = ["127.0.0.1", "localhost"];
 
 /// A [`ControlPort`], for clap's `value_parser`: `soundcraft --control` and
 /// SOUNDCRAFT_CONTROL_PORT, which may carry spaces. The variable may hold the `host:port`
@@ -174,10 +174,10 @@ mod tests {
 
     #[test]
     fn control_port_takes_the_port_of_a_loopback_host_and_port() {
-        for loopback in ["127.0.0.1:7979", "localhost:7979", "[::1]:7979", " 127.0.0.1:7979 "] {
+        for loopback in ["127.0.0.1:7979", "localhost:7979", " 127.0.0.1:7979 "] {
             assert_eq!(control_port(loopback), Ok(ControlPort::Local(7979)), "{loopback:?}");
         }
-        for remote in ["10.0.0.5:7979", "example.com:7979", "[::2]:7979"] {
+        for remote in ["10.0.0.5:7979", "example.com:7979", "[::1]:7979", "[::2]:7979"] {
             assert_eq!(control_port(remote), Ok(ControlPort::Remote(remote.to_owned())), "{remote:?}");
         }
     }

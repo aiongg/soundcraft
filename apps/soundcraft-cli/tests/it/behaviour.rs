@@ -383,6 +383,24 @@ fn in_place_replaces_the_input_and_other_files_are_still_replaced() {
     assert_eq!(next_track("other.scraft"), "track.new: {\"tracks\":[2]}\n");
 }
 
+/// A write that fails leaves the input as it was: the new bytes go to a new file first.
+#[cfg(unix)]
+#[test]
+fn failed_in_place_convert_keeps_the_input() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = sandbox("in-place-fails");
+    let before = std::fs::read(dir.join("in.wav")).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let can_create = std::fs::File::create(dir.join("probe")).is_ok();
+    if !can_create {
+        let got = invoke(&dir, &["convert", "in.wav", "in.wav", "--rate", "44100", "--in-place"]);
+        assert_eq!(got.code, 1, "{}", got.stderr);
+        assert_eq!(std::fs::read(dir.join("in.wav")).unwrap(), before);
+    }
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(std::fs::read_dir(&dir).unwrap().all(|e| !e.unwrap().file_name().to_string_lossy().ends_with(".part")));
+}
+
 /// An in-place output that is a link to the input replaces the input, and the link stays a link.
 #[cfg(unix)]
 #[test]
@@ -465,6 +483,12 @@ fn mcp_accepts_its_flags_in_both_spellings_and_exits_cleanly_on_empty_stdin() {
         "{}",
         twice.stderr
     );
+}
+
+#[test]
+fn mcp_demo_with_connect_is_a_usage_error() {
+    let dir = sandbox("mcp-demo-connect");
+    assert_usage_error(&invoke(&dir, &["mcp", "--demo", "--connect", "1"]), "the argument '--demo' cannot be used with '--connect <PORT>'");
 }
 
 #[test]

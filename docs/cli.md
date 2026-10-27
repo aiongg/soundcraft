@@ -50,7 +50,7 @@ to standard output.
 Arguments are checked before any work starts. These are usage errors (exit 2): a flag the
 subcommand does not take (`--fromat`), a flag given twice (only `--cmd` and the two automation
 root flags repeat), a value of the wrong type or out of range, flags that conflict
-(`--dither` with `--no-dither`, `--connect` with a root flag) and a missing value. A value flag
+(`--dither` with `--no-dither`, `--connect` with a root flag or `--demo`) and a missing value. A value flag
 never takes the next flag as its value: write a value that starts with `-` as `--bounce=-x.wav`, or
 give a file as `./-x.wav`. File names that are not valid Unicode reach the command unchanged;
 the engine opens and writes sessions and bounces by text name, so those paths must be valid
@@ -74,7 +74,7 @@ link stays. An existing file that is not an input is replaced without asking.
 
 | Variable | Flag | Notes |
 |---|---|---|
-| `SOUNDCRAFT_CONTROL_PORT` | `app --port` (CLI), `--control` (desktop app) | A port or `host:port`, an IPv6 host in brackets (`[::1]:7979`). The desktop app takes the port of a loopback `host:port` (`127.0.0.1`, `localhost`, `[::1]`). Its control server listens on `127.0.0.1` only, so it ignores another host from the variable, with a log warning, and starts no control server; given to `--control`, another host is a usage error |
+| `SOUNDCRAFT_CONTROL_PORT` | `app --port` (CLI), `--control` (desktop app) | A port or `host:port`, an IPv6 host in brackets (`[::1]:7979`). The desktop app takes the port of a loopback `host:port` (`127.0.0.1`, `localhost`). Its control server listens on `127.0.0.1` only, so it ignores another host from the variable, with a log warning, and starts no control server; given to `--control`, another host is a usage error |
 
 - A flag wins over its variable.
 - An empty variable counts as unset.

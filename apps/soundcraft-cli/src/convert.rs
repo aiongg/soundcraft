@@ -32,9 +32,27 @@ pub(crate) fn convert(args: &ConvertArgs, out: &mut dyn Write) -> Result<(), Cli
     };
     let opts = soundcraft_audio_io::EncodeOptions { format, bit_depth, dither, bwf: None };
     let bytes = soundcraft_audio_io::encode(&buf, &opts).map_err(|source| CliError::Audio { path: output.clone(), source })?;
-    std::fs::write(args.write_path(), bytes).map_err(|source| CliError::File { path: output.clone(), source })?;
+    write_replacing(&args.write_path(), &bytes).map_err(|source| CliError::File { path: output.clone(), source })?;
     outln!(out, "wrote {} ({} ch, {} Hz, {:.2} s)", output.display(), buf.num_channels(), buf.sample_rate, buf.duration_secs());
     Ok(())
+}
+
+/// Writes `bytes` to a new file next to `target`, flushes it and renames it over `target`, so `target`
+/// (the input, for --in-place) holds either its old or its new contents. The new file is removed when
+/// writing or renaming fails.
+fn write_replacing(target: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    let name = target.file_name().map_or_else(|| "output".into(), |n| n.to_string_lossy().into_owned());
+    let tmp = target.with_file_name(format!(".{name}.{}.part", std::process::id()));
+    let written = (|| {
+        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        std::fs::rename(&tmp, target)
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
 }
 
 /// Whether `convert` dithers when not told: only when writing integer samples that cannot hold the

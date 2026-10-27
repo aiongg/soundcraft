@@ -205,12 +205,12 @@ pub(crate) struct AppArgs {
 /// The automation roots confine every file the agent's commands read (open, import, presets) and
 /// write (save, bounce, export) to those folders, links followed. Each root flag may be given more
 /// than once, a path inside any of its folders being allowed, and a kind left out grants none of
-/// its access. The roots confine the in-process server, so they conflict with --connect.
+/// its access. The roots confine the in-process server, so they, like --demo, conflict with --connect.
 #[derive(Args)]
 pub(crate) struct McpArgs {
     /// Serve a running app's control channel at this port or host:port instead of an in-process
-    /// engine
-    #[arg(long, value_name = "PORT", value_parser = control_target, conflicts_with_all = ["automation_read_root", "automation_write_root"])]
+    /// engine; conflicts with --demo, which starts only that engine
+    #[arg(long, value_name = "PORT", value_parser = control_target, conflicts_with_all = ["demo", "automation_read_root", "automation_write_root"])]
     pub(crate) connect: Option<ControlTarget>,
     /// Start the in-process engine from the demo session
     #[arg(long)]

@@ -84,9 +84,8 @@ impl RemoteHost {
     /// clap's invalid-value error for `--control`, with the reason as a tip.
     fn into_clap(self, cmd: &mut Command) -> clap::Error {
         let flag = cmd.get_arguments().find(|a| a.get_id() == "control").map_or_else(|| "--control".to_owned(), ToString::to_string);
-        let tip = StyledStr::from(
-            "the control server listens on 127.0.0.1 only: give a port, or host:port with a loopback host (127.0.0.1, localhost, [::1])",
-        );
+        let tip =
+            StyledStr::from("the control server listens on 127.0.0.1 only: give a port, or host:port with a loopback host (127.0.0.1, localhost)");
         let mut error = clap::Error::new(ErrorKind::ValueValidation).with_cmd(cmd);
         error.insert(ContextKind::InvalidArg, ContextValue::String(flag));
         error.insert(ContextKind::InvalidValue, ContextValue::String(self.0));
@@ -179,9 +178,15 @@ mod tests {
     /// The variable `soundcraft-cli app` reads may hold `host:port`: a loopback one gives its port.
     #[test]
     fn a_loopback_host_and_port_gives_its_port() {
-        for value in ["127.0.0.1:50494", "localhost:50494", "[::1]:50494"] {
+        for value in ["127.0.0.1:50494", "localhost:50494"] {
             assert_eq!(parse_args(&["--control", value]).unwrap().control_port, Some(50494), "{value}");
         }
+    }
+
+    /// The control server binds 127.0.0.1, so `[::1]` is another host.
+    #[test]
+    fn an_ipv6_loopback_host_is_not_loopback() {
+        assert!(usage_error(&["--control", "[::1]:50494"]).contains("invalid value '[::1]:50494' for '--control <PORT>'"));
     }
 
     #[test]
