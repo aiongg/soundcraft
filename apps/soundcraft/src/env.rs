@@ -20,7 +20,7 @@ pub(crate) const RUST_LOG: &str = "RUST_LOG";
 pub(crate) const VARS: &[(&str, &str)] = &[
     // Read by clap (`env =` on `--control`), not by `Env`.
     ("SOUNDCRAFT_CONTROL_PORT", "The --control fallback: a port or host:port, ignored for another host"),
-    (CONFIG_DIR, "The settings folder (ui.json, Autosave, Presets, logs); empty: none"),
+    (CONFIG_DIR, "The settings folder (ui.json, Autosave, Presets, logs); empty: none (the exception to \"empty counts as unset\")"),
     (NO_PREFS, "1 doesn't read or write preferences and logs to stderr only; 0 or unset is off"),
     (NO_SYSTEM_FONTS, "1 uses the built-in fonts only; 0 or unset is off"),
     (WAYLAND, "Linux: 1 keeps the native Wayland backend instead of XWayland; 0 or unset is off"),
@@ -44,7 +44,10 @@ pub(crate) fn help() -> String {
 /// The app's variables, as read at startup.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Env {
-    /// `SOUNDCRAFT_CONFIG_DIR`: `Some("")` disables the settings folder.
+    /// The settings folder (ui.json, Autosave, Presets, logs), resolved once: `SOUNDCRAFT_CONFIG_DIR`,
+    /// else the portable data folder, else the platform's. `None` when the variable is set but
+    /// empty, or no platform folder is available. The empty variable is the one exception to
+    /// "an empty variable counts as unset" (RFC-0012 rule 1.7).
     pub(crate) config_dir: Option<PathBuf>,
     pub(crate) no_prefs: Switch,
     pub(crate) no_system_fonts: Switch,
@@ -63,7 +66,7 @@ impl Env {
             Some(v) => Switch::parse(name, Some(&v.to_string_lossy())),
         };
         Env {
-            config_dir: get(CONFIG_DIR).map(PathBuf::from),
+            config_dir: crate::config::resolve_config_dir(&get),
             no_prefs: switch(NO_PREFS),
             no_system_fonts: switch(NO_SYSTEM_FONTS),
             wayland: switch(WAYLAND),
@@ -106,8 +109,18 @@ mod tests {
         let env = lookup(&[(CONFIG_DIR, "/c"), (NO_PREFS, "yes"), (NO_SYSTEM_FONTS, "0"), (WAYLAND, "bogus")]);
         assert_eq!(env.config_dir, Some(PathBuf::from("/c")));
         assert_eq!((env.no_prefs, env.no_system_fonts, env.wayland), (Switch::On, Switch::Off, Switch::Default));
-        assert_eq!(lookup(&[]), Env::default());
-        assert_eq!(lookup(&[(CONFIG_DIR, "")]).config_dir, Some(PathBuf::new()));
+    }
+
+    #[test]
+    fn settings_folder_is_resolved_into_env() {
+        // Empty means no folder, even with a platform folder available.
+        assert_eq!(lookup(&[(CONFIG_DIR, ""), ("HOME", "/h"), ("XDG_CONFIG_HOME", "/x")]).config_dir, None);
+        assert_eq!(lookup(&[(CONFIG_DIR, "/c"), ("HOME", "/h")]).config_dir, Some(PathBuf::from("/c")));
+        let unset = lookup(&[("HOME", "/h"), ("APPDATA", "/h"), ("XDG_CONFIG_HOME", "/x")]).config_dir;
+        assert!(unset.is_some_and(|d| d.ends_with("SoundCraft") || d.ends_with("soundcraft") || d.ends_with("SoundCraftData")));
+        // Disabling preferences doesn't depend on the folder.
+        let env = lookup(&[(CONFIG_DIR, "/c"), (NO_PREFS, "1")]);
+        assert!(env.config_dir.is_some() && !env.prefs_enabled());
     }
 
     #[test]

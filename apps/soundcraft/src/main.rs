@@ -130,13 +130,8 @@ fn open_path(app: &mut SoundApp, p: &str) {
     }
 }
 
-/// The per-user settings directory: `ui.json`, `Autosave/`, `Presets/` and `logs/` live here.
-fn config_dir(env: &Env) -> Option<std::path::PathBuf> {
-    config::config_dir(env)
-}
-
 fn prefs_path(env: &Env) -> Option<std::path::PathBuf> {
-    config_dir(env).map(|b| b.join("ui.json"))
+    env.config_dir.as_ref().map(|b| b.join("ui.json"))
 }
 
 /// Runs without preferences (`SOUNDCRAFT_NO_PREFS`, agents' test runs) neither read nor write them.
@@ -227,7 +222,7 @@ fn main() -> eframe::Result {
     // preferences (agents' test runs) log to standard error only, so they don't rotate away the
     // user's own logs.
     if let Some(logger) = logger {
-        match config_dir(&env) {
+        match env.config_dir.as_deref() {
             _ if !env.prefs_enabled() => logger.no_file(),
             Some(dir) => match logger.attach_dir(&dir.join(logging::LOG_DIR)) {
                 Ok(path) => log::info!("log file {}", path.display()),
@@ -277,9 +272,9 @@ fn main() -> eframe::Result {
             let mut app = SoundApp::new(engine, player, services());
             app.set_startup_update_check(true);
             app.set_system_fonts(env.system_fonts());
-            app.autosave_dir = prefs_path(&env).and_then(|p| p.parent().map(|d| d.join("Autosave")));
+            app.autosave_dir = env.config_dir.as_ref().map(|d| d.join("Autosave"));
             app.leftovers = app.autosave_dir.as_deref().map(soundcraft_engine::autosave::leftovers).unwrap_or_default();
-            app.preset_dir = prefs_path(&env).and_then(|p| p.parent().map(|d| d.join("Presets")));
+            app.preset_dir = env.config_dir.as_ref().map(|d| d.join("Presets"));
             app.extra.ui_scale = prefs.ui_scale;
             app.ui = prefs;
             if let Some(port) = control_port {

@@ -5,8 +5,6 @@ use std::path::{Path, PathBuf};
 
 use soundcraft_ui_egui::docking;
 
-use crate::env::Env;
-
 /// Portable mode (#268): this file beside the executable keeps settings, autosaves, presets and
 /// logs in [`PORTABLE_DATA_DIR`] next to it instead of the user profile.
 const PORTABLE_MARKER: &str = "portable.txt";
@@ -19,21 +17,13 @@ enum Platform {
     Other,
 }
 
-/// SoundCraft's settings folder. A nonempty `$SOUNDCRAFT_CONFIG_DIR` overrides the platform default.
-/// The override is the complete directory; no application-name suffix is appended. An explicitly
-/// empty value disables the settings directory instead of falling back to a personal profile.
-/// Otherwise `portable.txt` beside the executable selects `<exe dir>/SoundCraftData`, when that
-/// folder can be written (a read-only medium falls back to the platform default).
-pub fn config_dir(env: &Env) -> Option<PathBuf> {
-    static DIR: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| {
-        let exe = std::env::current_exe().ok();
-        resolve(env, exe.as_deref().and_then(Path::parent))
-    })
-    .clone()
-}
-
-fn resolve(env: &Env, exe_dir: Option<&Path>) -> Option<PathBuf> {
+/// SoundCraft's settings folder, resolved from the variable lookup `get` (see `Env::from_lookup`).
+/// A nonempty `$SOUNDCRAFT_CONFIG_DIR` overrides the platform default and is the complete
+/// directory; no application-name suffix is appended. An explicitly empty value means no settings
+/// folder instead of a fallback to a personal profile (the documented exception to RFC-0012 rule
+/// 1.7). Otherwise `portable.txt` beside the executable selects `<exe dir>/SoundCraftData`, when
+/// that folder can be written (a read-only medium falls back to the platform default).
+pub fn resolve_config_dir(get: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
     let platform = if cfg!(target_os = "macos") {
         Platform::Mac
     } else if cfg!(windows) {
@@ -41,9 +31,8 @@ fn resolve(env: &Env, exe_dir: Option<&Path>) -> Option<PathBuf> {
     } else {
         Platform::Other
     };
-    // The override comes from `Env`; the platform variables are read here.
-    let lookup = |name: &str| if name == crate::env::CONFIG_DIR { env.config_dir.clone().map(OsString::from) } else { std::env::var_os(name) };
-    config_dir_with(platform, lookup, exe_dir)
+    let exe = std::env::current_exe().ok();
+    config_dir_with(platform, get, exe.as_deref().and_then(Path::parent))
 }
 
 fn config_dir_with(platform: Platform, env: impl Fn(&str) -> Option<OsString>, exe_dir: Option<&Path>) -> Option<PathBuf> {
