@@ -1,6 +1,6 @@
 //! SoundCraft desktop app.
 //!
-//! Usage: `soundcraft [--demo] [--control <port>] [--no-audio] [session.scraft | audio files…]`
+//! Usage: `soundcraft [--demo] [--control <port>] [--no-audio] [session.scraft | audio files…]`; `soundcraft --help` lists the flags and `SOUNDCRAFT_CONTROL_PORT`.
 //!
 //! `--control <port>` (or `SOUNDCRAFT_CONTROL_PORT`) starts a localhost JSON-lines control server
 //! (`0` picks a free port and prints it): `{"id":1,"method":"ui.inspect","params":{}}` →
@@ -219,13 +219,10 @@ fn main() -> eframe::Result {
     // First, so every start-up record (and the engine's panic hook, installed with the first
     // Engine) is captured; see `logging`.
     let logger = logging::install();
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let launch = launch_args::parse(&args, std::env::var("SOUNDCRAFT_CONTROL_PORT").ok().as_deref());
-    if launch.version {
-        println!("SoundCraft {}", env!("CARGO_PKG_VERSION"));
-        return Ok(());
-    }
-    let launch_args::LaunchArgs { demo, no_audio, control: control_port, files, .. } = launch;
+    // Help, version and usage errors print and exit here, before a window or a log file exists.
+    let launch = launch_args::parse(launch_args::command(), std::env::args_os().skip(1)).unwrap_or_else(|e| e.exit());
+    let (demo, no_audio, control_port) = (launch.demo, launch.no_audio, launch.control_port);
+    let files = launch.files;
     log::info!("SoundCraft {} ({} {})", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH);
     // The log file lives in the settings directory; opened after the arguments, so `--version`
     // leaves no file behind. Records logged until now are written to it first. Runs without
@@ -291,7 +288,10 @@ fn main() -> eframe::Result {
                 app = app.with_control(rx);
             }
             for f in &files {
-                open_path(&mut app, f);
+                match f.to_str() {
+                    Some(p) => open_path(&mut app, p),
+                    None => log::warn!("{}: not opened, the name is not valid Unicode", f.display()),
+                }
             }
             // If the system menu bar cannot be built, keep the egui menu bar rather than fail to start.
             #[cfg(target_os = "macos")]
