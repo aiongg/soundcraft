@@ -3,10 +3,11 @@
 
 /// `1/on/true/yes` or `0/off/false/no`, case- and space-insensitive. Blank or unset is `Default`;
 /// anything else is `Default` and logged.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Switch {
     On,
     Off,
+    #[default]
     Default,
 }
 

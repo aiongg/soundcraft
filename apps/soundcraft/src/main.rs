@@ -13,6 +13,7 @@
 
 mod config;
 mod control_server;
+mod env;
 #[cfg(any(target_os = "windows", test))]
 mod graphics;
 mod launch_args;
@@ -20,11 +21,12 @@ mod logging;
 #[cfg(target_os = "macos")]
 mod native_menu;
 
+use env::Env;
 use soundcraft_engine::Engine;
 use soundcraft_ui_egui::{Services, SoundApp, UiState, dialogs};
 use std::sync::Arc;
 
-struct App(SoundApp, Option<&'static logging::AppLogger>, #[cfg(target_os = "macos")] Option<native_menu::NativeMenu>);
+struct App(SoundApp, Option<&'static logging::AppLogger>, Env, #[cfg(target_os = "macos")] Option<native_menu::NativeMenu>);
 
 /// Sends the title only when it changes, remembered here as X11 and Wayland can't read it back.
 fn set_title(ctx: &egui::Context, title: String) {
@@ -44,12 +46,12 @@ impl eframe::App for App {
             logger.report_audio_thread();
         }
         #[cfg(target_os = "macos")]
-        if let Some(menu) = &mut self.2 {
+        if let Some(menu) = &mut self.3 {
             menu.process(&mut self.0);
         }
         self.0.guarded(|app| app.logic(ctx));
         #[cfg(target_os = "macos")]
-        if let Some(menu) = &mut self.2 {
+        if let Some(menu) = &mut self.3 {
             menu.sync(&self.0);
         }
         // Files dropped on the window: audio on an instrument track or a Sampler window loads
@@ -73,7 +75,7 @@ impl eframe::App for App {
         self.0.ui.ui_scale = self.0.extra.ui_scale;
         // Saved now rather than at exit: the recent list matters most after a crash.
         if self.0.take_recent_changed() {
-            save_prefs(&self.0.ui);
+            save_prefs(&self.2, &self.0.ui);
         }
         // With the system menu bar there is no egui bar showing the window and dirty state, so the
         // title carries them; elsewhere the egui menu bar already does.
@@ -99,7 +101,7 @@ impl eframe::App for App {
     }
     fn on_exit(&mut self) {
         self.0.close_autosave();
-        save_prefs(&self.0.ui);
+        save_prefs(&self.2, &self.0.ui);
         if let Some(logger) = self.1 {
             logger.report_audio_thread();
         }
@@ -128,24 +130,20 @@ fn open_path(app: &mut SoundApp, p: &str) {
 }
 
 /// The per-user settings directory: `ui.json`, `Autosave/`, `Presets/` and `logs/` live here.
-fn config_dir() -> Option<std::path::PathBuf> {
-    config::config_dir()
+fn config_dir(env: &Env) -> Option<std::path::PathBuf> {
+    config::config_dir(env)
 }
 
-fn prefs_path() -> Option<std::path::PathBuf> {
-    config_dir().map(|b| b.join("ui.json"))
+fn prefs_path(env: &Env) -> Option<std::path::PathBuf> {
+    config_dir(env).map(|b| b.join("ui.json"))
 }
 
 /// Runs without preferences (`SOUNDCRAFT_NO_PREFS`, agents' test runs) neither read nor write them.
-fn prefs_enabled() -> bool {
-    soundcraft_ui_egui::switch::Switch::from_env("SOUNDCRAFT_NO_PREFS") != soundcraft_ui_egui::switch::Switch::On
-}
-
-fn load_prefs() -> Option<UiState> {
-    if !prefs_enabled() {
+fn load_prefs(env: &Env) -> Option<UiState> {
+    if !env.prefs_enabled() {
         return None;
     }
-    let path = prefs_path()?;
+    let path = prefs_path(env)?;
     match config::load_ui(&path) {
         Ok(state) => state,
         Err(error) => {
@@ -155,11 +153,11 @@ fn load_prefs() -> Option<UiState> {
     }
 }
 
-fn save_prefs(ui: &UiState) {
-    if !prefs_enabled() {
+fn save_prefs(env: &Env, ui: &UiState) {
+    if !env.prefs_enabled() {
         return;
     }
-    if let Some(path) = prefs_path()
+    if let Some(path) = prefs_path(env)
         && let Err(error) = config::save_ui(&path, ui)
     {
         log::warn!("{error}");
@@ -218,7 +216,9 @@ fn main() -> eframe::Result {
     }
     // First, so every start-up record (and the engine's panic hook, installed with the first
     // Engine) is captured; see `logging`.
-    let logger = logging::install();
+    let logger = logging::install(env::rust_log().as_deref());
+    // After the logger, so a malformed switch is logged.
+    let env = Env::read();
     // Help, version and usage errors print and exit here, before a window or a log file exists.
     let launch = launch_args::parse(launch_args::command(), std::env::args_os().skip(1)).unwrap_or_else(|e| e.exit());
     let (demo, no_audio, control_port) = (launch.demo, launch.no_audio, launch.control_port);
@@ -229,8 +229,8 @@ fn main() -> eframe::Result {
     // preferences (agents' test runs) log to standard error only, so they don't rotate away the
     // user's own logs.
     if let Some(logger) = logger {
-        match config_dir() {
-            _ if !prefs_enabled() => logger.no_file(),
+        match config_dir(&env) {
+            _ if !env.prefs_enabled() => logger.no_file(),
             Some(dir) => match logger.attach_dir(&dir.join(logging::LOG_DIR)) {
                 Ok(path) => log::info!("log file {}", path.display()),
                 Err(e) => log::warn!("no log file: {e}"),
@@ -243,7 +243,7 @@ fn main() -> eframe::Result {
     }
 
     let engine = if demo { soundcraft_engine::demo::demo_engine() } else { Engine::default() };
-    let prefs = load_prefs().unwrap_or_default();
+    let prefs = load_prefs(&env).unwrap_or_default();
     let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("SoundCraft")
@@ -264,9 +264,7 @@ fn main() -> eframe::Result {
     // winit has no file drag-and-drop on Wayland (only on X11), so dropping files from the file
     // manager showed a "no" cursor. Run through XWayland when it's there; SOUNDCRAFT_WAYLAND=1
     // keeps the native Wayland backend.
-    if std::env::var_os("DISPLAY").is_some_and(|d| !d.is_empty())
-        && soundcraft_ui_egui::switch::Switch::from_env("SOUNDCRAFT_WAYLAND") != soundcraft_ui_egui::switch::Switch::On
-    {
+    if env.use_xwayland(std::env::var_os("DISPLAY").as_ref()) {
         options.event_loop_builder = Some(Box::new(|b| {
             use winit::platform::x11::EventLoopBuilderExtX11;
             b.with_x11();
@@ -280,9 +278,10 @@ fn main() -> eframe::Result {
                 if no_audio { None } else { Some(soundcraft_playback::Player::with_config(Arc::new(engine.session().clone()), &prefs.audio)) };
             let mut app = SoundApp::new(engine, player, services());
             app.set_startup_update_check(true);
-            app.autosave_dir = prefs_path().and_then(|p| p.parent().map(|d| d.join("Autosave")));
+            app.set_system_fonts(env.system_fonts());
+            app.autosave_dir = prefs_path(&env).and_then(|p| p.parent().map(|d| d.join("Autosave")));
             app.leftovers = app.autosave_dir.as_deref().map(soundcraft_engine::autosave::leftovers).unwrap_or_default();
-            app.preset_dir = prefs_path().and_then(|p| p.parent().map(|d| d.join("Presets")));
+            app.preset_dir = prefs_path(&env).and_then(|p| p.parent().map(|d| d.join("Presets")));
             app.extra.ui_scale = prefs.ui_scale;
             app.ui = prefs;
             if let Some(port) = control_port {
@@ -310,6 +309,7 @@ fn main() -> eframe::Result {
             Ok(Box::new(App(
                 app,
                 logger,
+                env,
                 #[cfg(target_os = "macos")]
                 menu,
             )))

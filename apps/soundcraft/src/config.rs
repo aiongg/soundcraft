@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 
 use soundcraft_ui_egui::docking;
 
+use crate::env::Env;
+
 /// Portable mode (#268): this file beside the executable keeps settings, autosaves, presets and
 /// logs in [`PORTABLE_DATA_DIR`] next to it instead of the user profile.
 const PORTABLE_MARKER: &str = "portable.txt";
@@ -22,16 +24,16 @@ enum Platform {
 /// empty value disables the settings directory instead of falling back to a personal profile.
 /// Otherwise `portable.txt` beside the executable selects `<exe dir>/SoundCraftData`, when that
 /// folder can be written (a read-only medium falls back to the platform default).
-pub fn config_dir() -> Option<PathBuf> {
+pub fn config_dir(env: &Env) -> Option<PathBuf> {
     static DIR: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
     DIR.get_or_init(|| {
         let exe = std::env::current_exe().ok();
-        resolve(exe.as_deref().and_then(Path::parent))
+        resolve(env, exe.as_deref().and_then(Path::parent))
     })
     .clone()
 }
 
-fn resolve(exe_dir: Option<&Path>) -> Option<PathBuf> {
+fn resolve(env: &Env, exe_dir: Option<&Path>) -> Option<PathBuf> {
     let platform = if cfg!(target_os = "macos") {
         Platform::Mac
     } else if cfg!(windows) {
@@ -39,11 +41,13 @@ fn resolve(exe_dir: Option<&Path>) -> Option<PathBuf> {
     } else {
         Platform::Other
     };
-    config_dir_with(platform, |name| std::env::var_os(name), exe_dir)
+    // The override comes from `Env`; the platform variables are read here.
+    let lookup = |name: &str| if name == crate::env::CONFIG_DIR { env.config_dir.clone().map(OsString::from) } else { std::env::var_os(name) };
+    config_dir_with(platform, lookup, exe_dir)
 }
 
 fn config_dir_with(platform: Platform, env: impl Fn(&str) -> Option<OsString>, exe_dir: Option<&Path>) -> Option<PathBuf> {
-    if let Some(dir) = env("SOUNDCRAFT_CONFIG_DIR") {
+    if let Some(dir) = env(crate::env::CONFIG_DIR) {
         return (!dir.is_empty()).then(|| PathBuf::from(dir));
     }
     if let Some(exe_dir) = exe_dir.filter(|d| d.join(PORTABLE_MARKER).is_file()) {

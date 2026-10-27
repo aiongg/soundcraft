@@ -18,7 +18,7 @@ use soundcraft_automation::args::{ControlPort, ControlServerArgs, blank_env_is_u
 
 /// Opens SoundCraft with the given files
 #[derive(Parser)]
-#[command(name = "soundcraft", version = long_version(), after_help = ENVIRONMENT)]
+#[command(name = "soundcraft", version = long_version(), after_help = crate::env::help())]
 pub(crate) struct LaunchArgs {
     /// Sessions, audio and MIDI files to open. Put `--` before a name that starts with `-`
     pub(crate) files: Vec<PathBuf>,
@@ -34,18 +34,6 @@ pub(crate) struct LaunchArgs {
     #[arg(skip)]
     pub(crate) control_port: Option<u16>,
 }
-
-/// The variables the app reads, for the end of `--help`.
-const ENVIRONMENT: &str = "\
-Environment:
-  SOUNDCRAFT_CONTROL_PORT     The --control fallback: a port or host:port, ignored for another host
-  SOUNDCRAFT_CONFIG_DIR       The settings folder (ui.json, Autosave, Presets, logs); empty: none
-  SOUNDCRAFT_NO_PREFS         1 doesn't read or write preferences and logs to stderr only; 0 or unset is off
-  SOUNDCRAFT_NO_SYSTEM_FONTS  1 uses the built-in fonts only; 0 or unset is off
-  SOUNDCRAFT_WAYLAND          Linux: 1 keeps the native Wayland backend instead of XWayland; 0 or unset is off
-  The on/off variables take 1/on/true/yes or 0/off/false/no, in any case; any other value is
-  ignored with a warning in the log.
-  RUST_LOG                    Log filter, env_logger style: debug, warn,soundcraft_mix=trace";
 
 /// `0.1.0 (linux x86_64)`: the version and the platform the binary was built for.
 fn long_version() -> &'static str {
