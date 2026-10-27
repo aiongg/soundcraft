@@ -38,12 +38,10 @@ fn app_request(method: &str, params: Value) -> (String, Value) {
 }
 
 pub(crate) fn app(args: &AppArgs, out: &mut dyn Write) -> Result<(), CliError> {
-    let port = args.port.clone().or_else(|| std::env::var("SOUNDCRAFT_CONTROL_PORT").ok()).unwrap_or_else(|| "7979".into());
+    let port =
+        args.port.as_ref().map(|p| p.as_str().to_owned()).or_else(|| std::env::var("SOUNDCRAFT_CONTROL_PORT").ok()).unwrap_or_else(|| "7979".into());
     let method = &args.method;
-    let params = match &args.json {
-        Some(p) => serde_json::from_str::<Value>(p).map_err(|source| CliError::CmdJson { id: method.clone(), source })?,
-        None => json!({}),
-    };
+    let params = args.json.clone().unwrap_or_else(|| json!({}));
     let mut r = Remote::new(&port);
     // A bare command id is shorthand for engine.execute. Control-channel methods stay methods.
     let (m, p) = app_request(method, params);

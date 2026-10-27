@@ -41,7 +41,7 @@ pub(crate) fn parity(args: &ParityArgs, out: &mut dyn Write) -> Result<(), CliEr
     }
     if let Some(path) = &args.write {
         std::fs::write(path, &md).map_err(|source| CliError::File { path: path.clone(), source })?;
-        outln!(out, "wrote {path}: {}% ({}/{})", p["percent"], p["implemented"], p["total"]);
+        outln!(out, "wrote {}: {}% ({}/{})", path.display(), p["percent"], p["implemented"], p["total"]);
     } else {
         outln!(out, "{md}");
     }

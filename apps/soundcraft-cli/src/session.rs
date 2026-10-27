@@ -1,5 +1,5 @@
-use super::args::{EngineArgs, RunArgs, ScriptArgs};
-use super::error::CliError;
+use super::args::{CmdSpec, EngineArgs, RunArgs, ScriptArgs};
+use super::error::{CliError, utf8};
 use serde_json::{Value, json};
 use soundcraft_engine::Engine;
 use std::io::Write;
@@ -14,7 +14,7 @@ pub(crate) fn warn_missing(err: &mut dyn Write, missing: &[String]) {
 fn load_engine(args: &EngineArgs, err: &mut dyn Write) -> Result<Engine, CliError> {
     if let Some(p) = &args.input {
         let mut e = Engine::default();
-        let missing = soundcraft_engine::io::open_session(&mut e, p)?;
+        let missing = soundcraft_engine::io::open_session(&mut e, utf8(p)?)?;
         warn_missing(err, &missing);
         Ok(e)
     } else if args.demo {
@@ -26,12 +26,12 @@ fn load_engine(args: &EngineArgs, err: &mut dyn Write) -> Result<Engine, CliErro
 
 fn finish(e: &mut Engine, args: &EngineArgs, out: &mut dyn Write) -> Result<(), CliError> {
     if let Some(path) = &args.bounce {
-        let mut p = json!({"path": path});
+        let mut p = json!({"path": utf8(path)?});
         if let Some(s) = &args.start {
-            p["start"] = time_arg(s);
+            p["start"] = s.to_json();
         }
         if let Some(s) = &args.end {
-            p["end"] = time_arg(s);
+            p["end"] = s.to_json();
         }
         // No range given: bounce the whole session, not whatever edit selection the commands left.
         if p.get("start").is_none() && p.get("end").is_none() {
@@ -42,7 +42,7 @@ fn finish(e: &mut Engine, args: &EngineArgs, out: &mut dyn Write) -> Result<(), 
         outln!(out, "{v}");
     }
     if let Some(path) = &args.save {
-        let v = e.execute("session.save", &json!({"path": path, "replace": true}))?;
+        let v = e.execute("session.save", &json!({"path": utf8(path)?, "replace": true}))?;
         outln!(out, "{v}");
     }
     if args.inspect {
@@ -51,28 +51,12 @@ fn finish(e: &mut Engine, args: &EngineArgs, out: &mut dyn Write) -> Result<(), 
     Ok(())
 }
 
-/// `12.5` → seconds; anything else is passed through as a time string.
-fn time_arg(s: &str) -> Value {
-    s.parse::<f64>().map_or_else(|_| json!(s), |f| json!({"seconds": f}))
-}
-
-/// `ID` or `ID=JSON` → command id and params; malformed JSON is an error, not `{}`.
-fn parse_cmd_spec(spec: &str) -> Result<(String, Value), CliError> {
-    match spec.split_once('=') {
-        Some((id, p)) => {
-            serde_json::from_str::<Value>(p).map(|v| (id.to_string(), v)).map_err(|source| CliError::CmdJson { id: id.to_string(), source })
-        }
-        None => Ok((spec.to_string(), json!({}))),
-    }
-}
-
 pub(crate) fn run_cmds(args: &RunArgs, out: &mut dyn Write, err: &mut dyn Write) -> Result<(), CliError> {
     let mut e = load_engine(&args.engine, err)?;
-    for spec in &args.cmd {
-        let (id, params) = parse_cmd_spec(spec)?;
-        match e.execute(&id, &params) {
+    for CmdSpec { id, params } in &args.cmd {
+        match e.execute(id, params) {
             Ok(v) => outln!(out, "{id}: {v}"),
-            Err(source) => return Err(CliError::Command { id, source }),
+            Err(source) => return Err(CliError::Command { id: id.clone(), source }),
         }
     }
     finish(&mut e, &args.engine, out)
@@ -115,17 +99,5 @@ mod tests {
         assert!(err.is_empty());
         warn_missing(&mut err, &["a.wav".to_string(), "b.wav: decode failed".to_string()]);
         assert_eq!(String::from_utf8(err).unwrap(), "warning: missing media: a.wav\nwarning: missing media: b.wav: decode failed\n");
-    }
-
-    #[test]
-    fn cmd_spec_parses_id_and_json() {
-        assert_eq!(parse_cmd_spec("a.b").unwrap(), ("a.b".to_string(), json!({})));
-        assert_eq!(parse_cmd_spec("a.b={\"x\":1}").unwrap(), ("a.b".to_string(), json!({"x": 1})));
-    }
-
-    #[test]
-    fn cmd_spec_rejects_truncated_json() {
-        let err = parse_cmd_spec("a.b={\"x\":").unwrap_err().to_string();
-        assert!(err.starts_with("a.b: bad JSON"), "{err}");
     }
 }

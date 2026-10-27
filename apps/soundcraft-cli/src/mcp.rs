@@ -1,4 +1,4 @@
-use super::args::McpArgs;
+use super::args::{ControlTarget, McpArgs};
 use super::error::{CliError, UsageError};
 use soundcraft_automation::{Headless, Remote, mcp::Server};
 use soundcraft_engine::Engine;
@@ -7,7 +7,7 @@ use std::io::Write;
 
 /// What `mcp` serves.
 struct Setup {
-    connect: Option<String>,
+    connect: Option<ControlTarget>,
     demo: bool,
     roots: Option<std::sync::Arc<AutomationRoots>>,
 }
@@ -30,7 +30,7 @@ pub(crate) fn mcp(args: &McpArgs, err: &mut dyn Write) -> Result<(), CliError> {
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     let served = if let Some(port) = connect {
-        let mut s = Server::new(Remote::new(&port));
+        let mut s = Server::new(Remote::new(port.as_str()));
         s.serve(stdin.lock(), stdout.lock())
     } else {
         // `--demo` is the operator's own choice, made before the roots come into force.

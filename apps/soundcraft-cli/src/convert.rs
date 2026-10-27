@@ -1,14 +1,19 @@
 use super::args::ConvertArgs;
 use super::error::{CliError, ConvertError};
 use std::io::Write;
+use std::num::NonZeroU32;
 
 pub(crate) fn convert(args: &ConvertArgs, out: &mut dyn Write) -> Result<(), CliError> {
     let (input, output) = (&args.input, &args.output);
-    let rate = parse_rate(args.rate.as_deref())?;
-    let bit_depth = parse_bit_depth(args.bit_depth.as_deref())?;
-    let dither_flag = parse_dither(args.dither, args.no_dither)?;
+    let rate = args.rate.map(NonZeroU32::get);
+    let bit_depth = args.bit_depth.into();
+    let dither_flag = match (args.dither, args.no_dither) {
+        (true, _) => Some(true),
+        (_, true) => Some(false),
+        _ => None,
+    };
     let bytes = std::fs::read(input).map_err(|source| CliError::File { path: input.clone(), source })?;
-    let ext = std::path::Path::new(input).extension().and_then(std::ffi::OsStr::to_str);
+    let ext = input.extension().and_then(std::ffi::OsStr::to_str);
     let (info, mut buf) = soundcraft_audio_io::decode(&bytes, ext).map_err(|source| CliError::Audio { path: input.clone(), source })?;
     if let Some(rate) = rate {
         buf.channels = soundcraft_dsp::offline::resample(&buf.channels, buf.sample_rate, rate);
@@ -20,44 +25,15 @@ pub(crate) fn convert(args: &ConvertArgs, out: &mut dyn Write) -> Result<(), Cli
     }
     let processed = rate.is_some_and(|r| r != info.sample_rate) || normalize;
     let dither = dither_flag.unwrap_or_else(|| auto_dither(info.sample_format, bit_depth, processed));
-    let out_ext = std::path::Path::new(output).extension().and_then(std::ffi::OsStr::to_str).unwrap_or("wav").to_ascii_lowercase();
+    let out_ext = output.extension().and_then(std::ffi::OsStr::to_str).unwrap_or("wav").to_ascii_lowercase();
     let Some(format) = soundcraft_audio_io::encode_format_for(&out_ext) else {
         return Err(ConvertError::OutputFormat { output: output.clone(), ext: out_ext }.into());
     };
     let opts = soundcraft_audio_io::EncodeOptions { format, bit_depth, dither, bwf: None };
     let bytes = soundcraft_audio_io::encode(&buf, &opts).map_err(|source| CliError::Audio { path: output.clone(), source })?;
     std::fs::write(output, bytes).map_err(|source| CliError::File { path: output.clone(), source })?;
-    outln!(out, "wrote {output} ({} ch, {} Hz, {:.2} s)", buf.num_channels(), buf.sample_rate, buf.duration_secs());
+    outln!(out, "wrote {} ({} ch, {} Hz, {:.2} s)", output.display(), buf.num_channels(), buf.sample_rate, buf.duration_secs());
     Ok(())
-}
-
-fn parse_rate(v: Option<&str>) -> Result<Option<u32>, ConvertError> {
-    match v {
-        None => Ok(None),
-        Some(r) => match r.parse::<u32>() {
-            Ok(hz) if hz > 0 => Ok(Some(hz)),
-            _ => Err(ConvertError::Rate(r.to_owned())),
-        },
-    }
-}
-
-fn parse_bit_depth(v: Option<&str>) -> Result<soundcraft_audio_io::BitDepth, ConvertError> {
-    match v {
-        None | Some("24") => Ok(soundcraft_audio_io::BitDepth::Int24),
-        Some("16") => Ok(soundcraft_audio_io::BitDepth::Int16),
-        Some("32") | Some("32f") => Ok(soundcraft_audio_io::BitDepth::Float32),
-        Some(b) => Err(ConvertError::BitDepth(b.to_owned())),
-    }
-}
-
-/// `--dither` / `--no-dither`: `Some` when the caller chose, `None` to decide from the depths.
-fn parse_dither(dither: bool, no_dither: bool) -> Result<Option<bool>, ConvertError> {
-    match (dither, no_dither) {
-        (true, true) => Err(ConvertError::DitherConflict),
-        (true, false) => Ok(Some(true)),
-        (false, true) => Ok(Some(false)),
-        (false, false) => Ok(None),
-    }
 }
 
 /// Whether `convert` dithers when not told: only when writing integer samples that cannot hold the
@@ -88,26 +64,6 @@ fn auto_dither(source: soundcraft_audio_io::SampleFormat, target: soundcraft_aud
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn convert_rejects_invalid_rate_and_bit_depth() {
-        assert_eq!(parse_rate(None), Ok(None));
-        assert_eq!(parse_rate(Some("44100")), Ok(Some(44_100)));
-        assert!(parse_rate(Some("4410x")).is_err());
-        assert!(parse_rate(Some("0")).is_err());
-        assert!(matches!(parse_bit_depth(None), Ok(soundcraft_audio_io::BitDepth::Int24)));
-        assert!(matches!(parse_bit_depth(Some("16")), Ok(soundcraft_audio_io::BitDepth::Int16)));
-        assert!(matches!(parse_bit_depth(Some("32f")), Ok(soundcraft_audio_io::BitDepth::Float32)));
-        assert!(parse_bit_depth(Some("8")).is_err());
-    }
-
-    #[test]
-    fn convert_dither_flags() {
-        assert_eq!(parse_dither(false, false), Ok(None));
-        assert_eq!(parse_dither(true, false), Ok(Some(true)));
-        assert_eq!(parse_dither(false, true), Ok(Some(false)));
-        assert!(parse_dither(true, true).is_err());
-    }
 
     #[test]
     fn convert_dithers_only_when_resolution_is_lost() {

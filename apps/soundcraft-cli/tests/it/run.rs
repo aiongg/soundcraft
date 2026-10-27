@@ -231,14 +231,14 @@ fn unknown_flags_are_usage_errors_on_every_subcommand() {
     assert_usage_error(&invoke(&["mcp", "--automation-bogus=x"]), "unexpected argument '--automation-bogus' found");
 }
 
-/// `args_os`: a file name that isn't valid Unicode reaches clap instead of aborting the process.
+/// `args_os`: text that isn't valid Unicode reaches clap instead of aborting the process.
 #[cfg(unix)]
 #[test]
 fn a_non_unicode_argument_is_a_usage_error_not_a_panic() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;
     let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
-    let code = run([OsString::from("info"), OsString::from_vec(b"\xe9.wav".to_vec())], &mut stdout, &mut stderr);
+    let code = run([OsString::from("describe"), OsString::from_vec(b"\xe9.wav".to_vec())], &mut stdout, &mut stderr);
     assert_eq!((code, stdout.as_slice()), (2, &b""[..]));
     assert!(String::from_utf8_lossy(&stderr).starts_with("error: invalid UTF-8 was detected in one or more arguments"));
 }
@@ -255,9 +255,37 @@ fn run_demo_and_sample_are_the_same_flag() {
 #[test]
 fn run_command_failures() {
     assert_fails(&invoke(&["run", "--cmd", "nosuch.cmd"]), "nosuch.cmd: unknown command `nosuch.cmd`");
-    assert_fails(&invoke(&["run", "--cmd", "track.new={"]), "track.new: bad JSON: EOF while parsing an object at line 1 column 1");
     assert_fails(&invoke(&["run", "--in", "nope.scraft"]), &format!("nope.scraft: {}", not_found()));
     assert_fails(&invoke(&["run", "--in=nope.scraft"]), &format!("nope.scraft: {}", not_found()));
+}
+
+/// Relations and typed values are checked by clap: exit 2, the message names the flag, and nothing runs.
+#[test]
+fn flag_relations_and_typed_values_are_usage_errors() {
+    for (args, message) in [
+        (&["convert", "in.wav", "o.wav", "--dither", "--no-dither"][..], "the argument '--dither' cannot be used with '--no-dither'"),
+        (&["convert", "in.wav", "o.wav", "--rate", "0"], "invalid value '0' for '--rate <HZ>'"),
+        (&["convert", "in.wav", "o.wav", "--rate=abc"], "invalid value 'abc' for '--rate <HZ>'"),
+        (&["convert", "in.wav", "o.wav", "--bit-depth", "8"], "invalid value '8' for '--bit-depth <16|24|32f>'"),
+        (&["run", "--in", "s.scraft", "--demo"], "the argument '--in <S.scraft>' cannot be used with '--demo'"),
+        (&["script", "s.txt", "--in", "s.scraft", "--sample"], "the argument '--in <S.scraft>' cannot be used with '--demo'"),
+        (&["run", "--start", "1"], "the following required arguments were not provided:\n  --bounce <OUT>"),
+        (&["script", "s.txt", "--end", "1"], "the following required arguments were not provided:\n  --bounce <OUT>"),
+        (&["run", "--bounce", "b.wav", "--start", ""], "invalid value '' for '--start <T>'"),
+        (&["run", "--cmd", "track.new={", "--bounce", "b.wav"], "invalid value 'track.new={' for '--cmd <ID[=JSON]>': bad JSON:"),
+        (&["run", "--cmd", "=1"], "invalid value '=1' for '--cmd <ID[=JSON]>'"),
+        (&["describe", ""], "a value is required for '<ID>'"),
+        (&["commands", ""], "a value is required for '[FILTER]'"),
+        (&["app", ""], "a value is required for '<METHOD>'"),
+    ] {
+        let got = invoke(args);
+        assert_usage_error(&got, message);
+    }
+}
+
+#[test]
+fn a_bad_later_cmd_runs_none_of_them() {
+    assert_usage_error(&invoke(&["run", "--cmd", "track.new", "--cmd", "track.new={"]), "invalid value 'track.new={'");
 }
 
 #[test]
@@ -297,8 +325,17 @@ fn app_reports_a_refused_connection_and_checks_arguments_first() {
     ] {
         assert_refused(&invoke(&args), 1);
     }
-    assert_fails(&invoke(&["app", "--port", "1", "session.inspect", "{bad"]), "session.inspect: bad JSON: key must be a string at line 1 column 2");
-    assert_fails(&invoke(&["app", "--port", "abc", "session.inspect"]), "127.0.0.1:abc: invalid port value");
+    assert_usage_error(
+        &invoke(&["app", "--port", "1", "session.inspect", "{bad"]),
+        "invalid value '{bad' for '[JSON]': bad JSON: key must be a string at line 1 column 2",
+    );
+    for bad in ["abc", "", "70000", ":80", "host:", "host:abc"] {
+        assert_usage_error(
+            &invoke(&["app", "--port", bad, "session.inspect"]),
+            &format!("invalid value '{bad}' for '--port <P>': expected a port, 0-65535, or host:port"),
+        );
+        assert_usage_error(&invoke(&["mcp", "--connect", bad]), &format!("invalid value '{bad}' for '--connect <PORT>': expected a port"));
+    }
 }
 
 #[test]

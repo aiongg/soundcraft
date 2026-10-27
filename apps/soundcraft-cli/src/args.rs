@@ -3,11 +3,14 @@
 //! value: a following flag is never taken as the value.
 
 use std::ffi::OsString;
+use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
+use clap::builder::NonEmptyStringValueParser;
 use clap::error::ErrorKind;
-use clap::{ArgAction, Args, CommandFactory, FromArgMatches, Parser, Subcommand};
+use clap::{ArgAction, Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
+use serde_json::{Value, json};
 
 /// soundcraft-cli: SoundCraft without a window
 #[derive(Parser)]
@@ -36,7 +39,7 @@ pub(crate) enum Command {
 #[derive(Args)]
 pub(crate) struct InfoArgs {
     /// An audio file or a .scraft session
-    pub(crate) file: String,
+    pub(crate) file: PathBuf,
 }
 
 /// Convert an audio file: resample, change the bit depth, normalize
@@ -47,21 +50,21 @@ pub(crate) struct InfoArgs {
 pub(crate) struct ConvertArgs {
     /// The audio file to read
     #[arg(value_name = "IN")]
-    pub(crate) input: String,
+    pub(crate) input: PathBuf,
     /// The audio file to write
     #[arg(value_name = "OUT")]
-    pub(crate) output: String,
-    /// The output's bit depth: 16, 24 (the default) or 32f
-    #[arg(long, value_name = "16|24|32f")]
-    pub(crate) bit_depth: Option<String>,
+    pub(crate) output: PathBuf,
+    /// The output's bit depth
+    #[arg(long, value_enum, value_name = "16|24|32f", default_value = "24")]
+    pub(crate) bit_depth: BitDepthArg,
     /// Resample to this sample rate
     #[arg(long, value_name = "HZ")]
-    pub(crate) rate: Option<String>,
+    pub(crate) rate: Option<NonZeroU32>,
     /// Normalize the peak to -0.1 dBFS
     #[arg(long)]
     pub(crate) normalize: bool,
     /// Always dither
-    #[arg(long)]
+    #[arg(long, conflicts_with = "no_dither")]
     pub(crate) dither: bool,
     /// Never dither
     #[arg(long)]
@@ -72,23 +75,23 @@ pub(crate) struct ConvertArgs {
 #[derive(Args)]
 pub(crate) struct EngineArgs {
     /// Open this session first
-    #[arg(long = "in", value_name = "S.scraft")]
-    pub(crate) input: Option<String>,
-    /// Start from the demo session (ignored with --in)
+    #[arg(long = "in", value_name = "S.scraft", conflicts_with = "demo")]
+    pub(crate) input: Option<PathBuf>,
+    /// Start from the demo session
     #[arg(long, visible_alias = "sample")]
     pub(crate) demo: bool,
     /// Bounce the mix to this file at the end; without --start and --end, the whole session
     #[arg(long, value_name = "OUT")]
-    pub(crate) bounce: Option<String>,
+    pub(crate) bounce: Option<PathBuf>,
     /// Where the bounce starts: seconds (12.5) or a time string
-    #[arg(long, value_name = "T", allow_negative_numbers = true)]
-    pub(crate) start: Option<String>,
+    #[arg(long, value_name = "T", allow_negative_numbers = true, requires = "bounce", value_parser = time_arg)]
+    pub(crate) start: Option<TimeArg>,
     /// Where the bounce ends: seconds (12.5) or a time string
-    #[arg(long, value_name = "T", allow_negative_numbers = true)]
-    pub(crate) end: Option<String>,
+    #[arg(long, value_name = "T", allow_negative_numbers = true, requires = "bounce", value_parser = time_arg)]
+    pub(crate) end: Option<TimeArg>,
     /// Save the session to this file at the end, replacing it
     #[arg(long, value_name = "S.scraft")]
-    pub(crate) save: Option<String>,
+    pub(crate) save: Option<PathBuf>,
     /// Print the session as JSON at the end
     #[arg(long)]
     pub(crate) inspect: bool,
@@ -101,8 +104,8 @@ pub(crate) struct EngineArgs {
 pub(crate) struct RunArgs {
     /// An engine command, with its JSON parameters after `=` (default {}); repeat for several, run
     /// in order
-    #[arg(long, value_name = "ID[=JSON]", action = ArgAction::Append)]
-    pub(crate) cmd: Vec<String>,
+    #[arg(long, value_name = "ID[=JSON]", action = ArgAction::Append, value_parser = cmd_spec)]
+    pub(crate) cmd: Vec<CmdSpec>,
     #[command(flatten)]
     pub(crate) engine: EngineArgs,
 }
@@ -114,7 +117,7 @@ pub(crate) struct RunArgs {
 #[derive(Args)]
 pub(crate) struct ScriptArgs {
     /// The script to run
-    pub(crate) file: String,
+    pub(crate) file: PathBuf,
     /// Report a failing line and go on with the next
     #[arg(long)]
     pub(crate) keep_going: bool,
@@ -126,6 +129,7 @@ pub(crate) struct ScriptArgs {
 #[derive(Args)]
 pub(crate) struct CommandsArgs {
     /// Only the commands whose id, or label in any case, contains this text
+    #[arg(value_parser = NonEmptyStringValueParser::new())]
     pub(crate) filter: Option<String>,
 }
 
@@ -133,6 +137,7 @@ pub(crate) struct CommandsArgs {
 #[derive(Args)]
 pub(crate) struct DescribeArgs {
     /// The command's id, such as file.bounce_mix
+    #[arg(value_parser = NonEmptyStringValueParser::new())]
     pub(crate) id: String,
 }
 
@@ -143,12 +148,14 @@ pub(crate) struct DescribeArgs {
 #[derive(Args)]
 pub(crate) struct AppArgs {
     /// The app's control port or host:port [default: $SOUNDCRAFT_CONTROL_PORT, else 7979]
-    #[arg(long, value_name = "P")]
-    pub(crate) port: Option<String>,
+    #[arg(long, value_name = "P", value_parser = control_target)]
+    pub(crate) port: Option<ControlTarget>,
     /// A control method or engine command id
+    #[arg(value_parser = NonEmptyStringValueParser::new())]
     pub(crate) method: String,
     /// Its parameters as JSON [default: {}]
-    pub(crate) json: Option<String>,
+    #[arg(value_parser = json_value)]
+    pub(crate) json: Option<Value>,
 }
 
 /// Serve MCP on stdin and stdout
@@ -161,8 +168,8 @@ pub(crate) struct AppArgs {
 pub(crate) struct McpArgs {
     /// Serve a running app's control channel at this port or host:port instead of an in-process
     /// engine
-    #[arg(long, value_name = "PORT")]
-    pub(crate) connect: Option<String>,
+    #[arg(long, value_name = "PORT", value_parser = control_target)]
+    pub(crate) connect: Option<ControlTarget>,
     /// Start the in-process engine from the demo session
     #[arg(long)]
     pub(crate) demo: bool,
@@ -179,7 +186,107 @@ pub(crate) struct McpArgs {
 pub(crate) struct ParityArgs {
     /// Write the report to this file instead
     #[arg(long, value_name = "PATH")]
-    pub(crate) write: Option<String>,
+    pub(crate) write: Option<PathBuf>,
+}
+
+/// The bit depths `convert` writes. `32` is the same as `32f`.
+#[derive(Clone, Copy, ValueEnum)]
+pub(crate) enum BitDepthArg {
+    #[value(name = "16")]
+    Int16,
+    #[value(name = "24")]
+    Int24,
+    #[value(name = "32f", alias = "32")]
+    Float32,
+}
+
+impl From<BitDepthArg> for soundcraft_audio_io::BitDepth {
+    fn from(depth: BitDepthArg) -> Self {
+        match depth {
+            BitDepthArg::Int16 => Self::Int16,
+            BitDepthArg::Int24 => Self::Int24,
+            BitDepthArg::Float32 => Self::Float32,
+        }
+    }
+}
+
+/// A bounce position: seconds, or a time string the engine reads.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum TimeArg {
+    Seconds(f64),
+    Text(String),
+}
+
+impl TimeArg {
+    /// The `start` / `end` parameter of `file.bounce_mix`.
+    pub(crate) fn to_json(&self) -> Value {
+        match self {
+            Self::Seconds(s) => json!({"seconds": s}),
+            Self::Text(t) => json!(t),
+        }
+    }
+}
+
+/// One `--cmd ID[=JSON]`: the command id and its parameters (`{}` when none are given).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct CmdSpec {
+    pub(crate) id: String,
+    pub(crate) params: Value,
+}
+
+/// Where a running app's control channel listens: a port, or `host:port`.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ControlTarget(String);
+
+impl ControlTarget {
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Why a value was refused: clap prints it after the flag and its value (exit 2).
+#[derive(Debug, PartialEq, thiserror::Error)]
+pub(crate) enum ValueError {
+    #[error("expected seconds (12.5) or a time string, not an empty value")]
+    EmptyTime,
+    #[error("expected a command id, optionally followed by `=` and JSON parameters")]
+    EmptyCommandId,
+    #[error("bad JSON: {0}")]
+    Json(String),
+    #[error("expected a port, 0-65535, or host:port")]
+    ControlTarget,
+}
+
+fn time_arg(s: &str) -> Result<TimeArg, ValueError> {
+    if s.is_empty() {
+        return Err(ValueError::EmptyTime);
+    }
+    Ok(s.parse::<f64>().map_or_else(|_| TimeArg::Text(s.to_owned()), TimeArg::Seconds))
+}
+
+fn json_value(s: &str) -> Result<Value, ValueError> {
+    serde_json::from_str(s).map_err(|e| ValueError::Json(e.to_string()))
+}
+
+/// `ID` or `ID=JSON`; malformed JSON is an error, not `{}`.
+fn cmd_spec(s: &str) -> Result<CmdSpec, ValueError> {
+    let (id, params) = match s.split_once('=') {
+        Some((id, p)) => (id, json_value(p)?),
+        None => (s, json!({})),
+    };
+    if id.is_empty() {
+        return Err(ValueError::EmptyCommandId);
+    }
+    Ok(CmdSpec { id: id.to_owned(), params })
+}
+
+fn control_target(s: &str) -> Result<ControlTarget, ValueError> {
+    let port = match s.rsplit_once(':') {
+        Some((host, port)) if !host.is_empty() => port,
+        Some(_) => return Err(ValueError::ControlTarget),
+        None => s,
+    };
+    port.parse::<u16>().map(|_| ControlTarget(s.to_owned())).map_err(|_| ValueError::ControlTarget)
 }
 
 /// `0.1.0 (linux x86_64)`: the version and the platform the binary was built for.

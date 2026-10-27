@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use soundcraft_audio_io::AudioError;
 use soundcraft_engine::EngineError;
 
@@ -14,16 +16,17 @@ pub(crate) enum CliError {
     UnknownCommand(String),
     #[error("{id}: {source}")]
     Command { id: String, source: EngineError },
-    #[error("{id}: bad JSON: {source}")]
-    CmdJson { id: String, source: serde_json::Error },
-    #[error("{path}:{line}: bad JSON: {source}")]
-    ScriptJson { path: String, line: usize, source: serde_json::Error },
-    #[error("{path}:{line}: {id}: {source}")]
-    ScriptLine { path: String, line: usize, id: String, source: EngineError },
-    #[error("{path}: {source}")]
-    File { path: String, source: std::io::Error },
-    #[error("{path}: {source}")]
-    Audio { path: String, source: AudioError },
+    #[error("{}:{line}: bad JSON: {source}", path.display())]
+    ScriptJson { path: PathBuf, line: usize, source: serde_json::Error },
+    #[error("{}:{line}: {id}: {source}", path.display())]
+    ScriptLine { path: PathBuf, line: usize, id: String, source: EngineError },
+    #[error("{}: {source}", path.display())]
+    File { path: PathBuf, source: std::io::Error },
+    #[error("{}: {source}", path.display())]
+    Audio { path: PathBuf, source: AudioError },
+    /// The engine takes session and bounce paths as text.
+    #[error("{}: the path is not valid Unicode", .0.display())]
+    NonUnicodePath(PathBuf),
     /// The control channel of a running app failed ([`soundcraft_automation::Backend::call`] reports a string).
     #[error("{0}")]
     Remote(String),
@@ -32,6 +35,11 @@ pub(crate) enum CliError {
     Roots(String),
     #[error(transparent)]
     Serve(std::io::Error),
+}
+
+/// A path as the text the engine takes.
+pub(crate) fn utf8(path: &Path) -> Result<&str, CliError> {
+    path.to_str().ok_or_else(|| CliError::NonUnicodePath(path.to_owned()))
 }
 
 /// A command line clap accepts but the subcommand refuses.
@@ -47,12 +55,6 @@ so drop --connect (or use --connect without the roots)"
 /// A `convert` option or output the tool refuses.
 #[derive(Debug, PartialEq, thiserror::Error)]
 pub(crate) enum ConvertError {
-    #[error("--rate: expected a sample rate in Hz, got `{0}`")]
-    Rate(String),
-    #[error("--bit-depth: expected 16, 24 or 32f, got `{0}`")]
-    BitDepth(String),
-    #[error("--dither and --no-dither: choose one")]
-    DitherConflict,
-    #[error("{output}: cannot write `.{ext}` files (supported: {})", soundcraft_audio_io::ENCODE_EXTENSIONS)]
-    OutputFormat { output: String, ext: String },
+    #[error("{}: cannot write `.{ext}` files (supported: {})", output.display(), soundcraft_audio_io::ENCODE_EXTENSIONS)]
+    OutputFormat { output: PathBuf, ext: String },
 }
