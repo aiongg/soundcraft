@@ -9,6 +9,7 @@
 
 use std::ffi::OsString;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::parser::ValueSource;
@@ -103,6 +104,14 @@ pub fn control_port(s: &str) -> Result<ControlPort, NotATarget> {
         (Some(host), _) if !LOOPBACK_HOSTS.contains(&host) => ControlPort::Remote(s.to_owned()),
         (_, port) => ControlPort::Local(port),
     })
+}
+
+/// `0.1.0 (linux x86_64)`: the workspace version and the platform the binary was built for. Every
+/// crate takes its version from the workspace, so the value is the same in both binaries. A
+/// `const` can't build it: `concat!` accepts only literals, not `std::env::consts`.
+pub fn long_version() -> &'static str {
+    static LONG: OnceLock<String> = OnceLock::new();
+    LONG.get_or_init(|| format!("{} ({} {})", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH))
 }
 
 /// For `Command::mut_args`: an empty or blank variable counts as unset, so `SOUNDCRAFT_CONTROL_PORT=`

@@ -8,7 +8,6 @@
 
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::sync::OnceLock;
 
 use clap::builder::StyledStr;
 use clap::error::{ContextKind, ContextValue, ErrorKind};
@@ -18,7 +17,7 @@ use soundcraft_automation::args::{ControlPort, ControlServerArgs, blank_env_is_u
 
 /// Opens SoundCraft with the given files
 #[derive(Parser)]
-#[command(name = "soundcraft", version = long_version(), after_help = crate::env::help())]
+#[command(name = "soundcraft", version = soundcraft_automation::args::long_version(), after_help = crate::env::help())]
 pub(crate) struct LaunchArgs {
     /// Sessions, audio and MIDI files to open. Put `--` before a name that starts with `-`
     pub(crate) files: Vec<PathBuf>,
@@ -33,12 +32,6 @@ pub(crate) struct LaunchArgs {
     /// The port the control server starts on, from `control` ([`control_port`]).
     #[arg(skip)]
     pub(crate) control_port: Option<u16>,
-}
-
-/// `0.1.0 (linux x86_64)`: the version and the platform the binary was built for.
-fn long_version() -> &'static str {
-    static LONG: OnceLock<String> = OnceLock::new();
-    LONG.get_or_init(|| format!("{} ({} {})", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH))
 }
 
 /// The command line, where an empty or blank variable counts as unset.
@@ -141,7 +134,7 @@ mod tests {
         for flag in ["--version", "-V"] {
             let e = parse_args(&[flag, "--control"]).err().unwrap();
             assert_eq!((e.kind(), e.exit_code()), (ErrorKind::DisplayVersion, 0));
-            assert_eq!(e.to_string(), format!("soundcraft {}\n", long_version()));
+            assert_eq!(e.to_string(), format!("soundcraft {}\n", soundcraft_automation::args::long_version()));
         }
         let e = parse_args(&["-h", "--bogus"]).err().unwrap();
         assert_eq!((e.kind(), e.exit_code()), (ErrorKind::DisplayHelp, 0));

@@ -6,13 +6,14 @@ use std::borrow::Cow;
 use std::ffi::OsString;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 
 use clap::builder::NonEmptyStringValueParser;
 use clap::error::ErrorKind;
 use clap::{ArgAction, Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 use serde_json::{Value, json};
-use soundcraft_automation::args::{AutomationArgs, ControlClientArgs, ControlTarget, blank_env_is_unset, control_target, name_env_vars};
+use soundcraft_automation::args::{
+    AutomationArgs, ControlClientArgs, ControlTarget, blank_env_is_unset, control_target, long_version, name_env_vars,
+};
 
 /// soundcraft-cli: SoundCraft without a window
 #[derive(Parser)]
@@ -399,12 +400,6 @@ fn cmd_spec(s: &str) -> Result<CmdSpec, ValueError> {
         return Err(ValueError::EmptyCommandId);
     }
     Ok(CmdSpec { id: id.to_owned(), params })
-}
-
-/// `0.1.0 (linux x86_64)`: the version and the platform the binary was built for.
-fn long_version() -> &'static str {
-    static LONG: OnceLock<String> = OnceLock::new();
-    LONG.get_or_init(|| format!("{} ({} {})", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH))
 }
 
 /// Parse the arguments (without the binary name). clap reads them as `OsString`s: a folder need
