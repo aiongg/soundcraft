@@ -6,4 +6,6 @@ mod behaviour;
 mod cli;
 mod closed_stdout;
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod man_and_completions;
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod run;
