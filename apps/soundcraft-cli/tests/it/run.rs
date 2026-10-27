@@ -270,6 +270,20 @@ fn a_non_unicode_argument_is_a_usage_error_not_a_panic() {
     assert!(String::from_utf8_lossy(&stderr).starts_with("error: invalid UTF-8 was detected in one or more arguments"));
 }
 
+/// A bounce or save path goes to the engine as JSON text: a non-Unicode one fails before any command runs.
+#[cfg(unix)]
+#[test]
+fn a_non_unicode_output_fails_before_the_commands_run() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+    for flag in ["--bounce", "--save"] {
+        let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+        let args = ["run", "--cmd", "track.new", flag].map(OsString::from);
+        let code = run(args.into_iter().chain([OsString::from_vec(b"\xe9.out".to_vec())]), &mut stdout, &mut stderr);
+        assert_eq!((code, stdout.as_slice()), (1, &b""[..]), "{flag}: {}", String::from_utf8_lossy(&stderr));
+    }
+}
+
 #[test]
 fn run_demo_and_sample_are_the_same_flag() {
     let demo = invoke(&["run", "--demo", "--inspect"]);

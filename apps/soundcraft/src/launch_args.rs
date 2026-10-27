@@ -13,7 +13,8 @@ use clap::builder::StyledStr;
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::parser::ValueSource;
 use clap::{Command, CommandFactory, FromArgMatches, Parser};
-use soundcraft_automation::args::{ControlPort, ControlServerArgs, blank_env_is_unset, name_env_vars};
+use soundcraft_automation::ControlTarget;
+use soundcraft_automation::args::{ControlServerArgs, blank_env_is_unset, name_env_vars};
 
 /// Opens SoundCraft with the given files
 #[derive(Parser)]
@@ -64,21 +65,21 @@ pub(crate) fn parse(mut cmd: Command, args: impl IntoIterator<Item = OsString>) 
 /// `host:port`. From the flag that is a usage error. The variable is `soundcraft-cli app`'s too and
 /// may point it at another machine, so from there it is ignored with a warning and the app opens
 /// without a control server.
-fn control_port(value: Option<ControlPort>, source: Option<ValueSource>) -> Result<Option<u16>, RemoteHost> {
+fn control_port(value: Option<ControlTarget>, source: Option<ValueSource>) -> Result<Option<u16>, RemoteHost> {
     match value {
         None => Ok(None),
-        Some(ControlPort::Local(port)) => Ok(Some(port)),
-        Some(ControlPort::Remote(target)) if source == Some(ValueSource::EnvVariable) => {
+        Some(target) if target.is_loopback() => Ok(Some(target.port)),
+        Some(target) if source == Some(ValueSource::EnvVariable) => {
             log::warn!("SOUNDCRAFT_CONTROL_PORT={target} names another host, so no control server starts: it listens on 127.0.0.1 only");
             Ok(None)
         }
-        Some(ControlPort::Remote(target)) => Err(RemoteHost(target)),
+        Some(target) => Err(RemoteHost(target)),
     }
 }
 
 /// A `--control` `host:port` naming another host.
 #[derive(Debug, PartialEq)]
-struct RemoteHost(String);
+struct RemoteHost(ControlTarget);
 
 impl RemoteHost {
     /// clap's invalid-value error for `--control`, with the reason as a tip.
@@ -88,7 +89,7 @@ impl RemoteHost {
             StyledStr::from("the control server listens on 127.0.0.1 only: give a port, or host:port with a loopback host (127.0.0.1, localhost)");
         let mut error = clap::Error::new(ErrorKind::ValueValidation).with_cmd(cmd);
         error.insert(ContextKind::InvalidArg, ContextValue::String(flag));
-        error.insert(ContextKind::InvalidValue, ContextValue::String(self.0));
+        error.insert(ContextKind::InvalidValue, ContextValue::String(self.0.to_string()));
         error.insert(ContextKind::Suggested, ContextValue::StyledStrs(vec![tip]));
         error.insert(ContextKind::Usage, ContextValue::StyledStr(cmd.render_usage()));
         error
@@ -168,10 +169,11 @@ mod tests {
     /// a control server.
     #[test]
     fn another_host_is_ignored_only_from_the_variable() {
-        let remote = || Some(ControlPort::Remote("10.0.0.5:7979".to_owned()));
-        assert_eq!(control_port(remote(), Some(ValueSource::EnvVariable)), Ok(None));
-        assert_eq!(control_port(remote(), Some(ValueSource::CommandLine)), Err(RemoteHost("10.0.0.5:7979".to_owned())));
-        assert_eq!(control_port(Some(ControlPort::Local(7979)), Some(ValueSource::EnvVariable)), Ok(Some(7979)));
+        let remote = || ControlTarget { host: Some("10.0.0.5".to_owned()), port: 7979 };
+        assert_eq!(control_port(Some(remote()), Some(ValueSource::EnvVariable)), Ok(None));
+        assert_eq!(control_port(Some(remote()), Some(ValueSource::CommandLine)), Err(RemoteHost(remote())));
+        let local = ControlTarget { host: None, port: 7979 };
+        assert_eq!(control_port(Some(local), Some(ValueSource::EnvVariable)), Ok(Some(7979)));
         assert_eq!(control_port(None, None), Ok(None));
     }
 

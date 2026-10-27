@@ -52,9 +52,10 @@ subcommand does not take (`--fromat`), a flag given twice (only `--cmd` and the 
 root flags repeat), a value of the wrong type or out of range, flags that conflict
 (`--dither` with `--no-dither`, `--connect` with a root flag or `--demo`) and a missing value. A value flag
 never takes the next flag as its value: write a value that starts with `-` as `--bounce=-x.wav`, or
-give a file as `./-x.wav`. File names that are not valid Unicode reach the command unchanged;
-the engine opens and writes sessions and bounces by text name, so those paths must be valid
-Unicode (`info` on a session, `--in`, `--bounce`, `--save`: exit 1).
+give a file as `./-x.wav`. File names that are not valid Unicode reach the command unchanged.
+The engine writes bounces and saved sessions through commands whose parameters are JSON text, so
+those paths must be valid Unicode (`--bounce`, `--save`, and the `--in` session with
+`--in-place`: exit 1).
 
 An output that is one of the inputs is a usage error too, however the path is spelt (`a.wav`,
 `./a.wav`, a symbolic or hard link):

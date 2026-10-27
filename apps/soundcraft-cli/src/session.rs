@@ -12,10 +12,17 @@ pub(crate) fn warn_missing(err: &mut dyn Write, missing: &[String]) {
     }
 }
 
+/// The outputs go to the engine as JSON text, so a non-Unicode one is refused before any command runs.
 fn load_engine(args: &EngineArgs, err: &mut dyn Write) -> Result<Engine, CliError> {
+    if let Some(bounce) = &args.bounce {
+        unicode(bounce)?;
+    }
+    if let Some(save) = args.save_path() {
+        unicode(&save)?;
+    }
     if let Some(p) = &args.input {
         let mut e = Engine::default();
-        let missing = soundcraft_engine::io::open_session(&mut e, unicode(p)?)?;
+        let missing = soundcraft_engine::io::open_session(&mut e, p)?;
         warn_missing(err, &missing);
         Ok(e)
     } else if args.demo {

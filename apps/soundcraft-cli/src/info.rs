@@ -1,5 +1,5 @@
 use super::args::InfoArgs;
-use super::error::{CliError, unicode};
+use super::error::CliError;
 use super::output::print_json;
 use super::session::warn_missing;
 use serde_json::json;
@@ -10,7 +10,7 @@ pub(crate) fn info(args: &InfoArgs, out: &mut dyn Write, err: &mut dyn Write) ->
     let path = &args.file;
     if path.as_os_str().as_encoded_bytes().ends_with(b".scraft") {
         let mut e = Engine::default();
-        let missing = soundcraft_engine::io::open_session(&mut e, unicode(path)?)?;
+        let missing = soundcraft_engine::io::open_session(&mut e, path)?;
         warn_missing(err, &missing);
         outln!(out, "{}", soundcraft_engine::inspect::session_text(&e));
         return Ok(());

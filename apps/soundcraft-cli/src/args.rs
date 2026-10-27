@@ -13,9 +13,8 @@ use clap::error::ErrorKind;
 use clap::{ArgAction, Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 use serde_json::{Value, json};
 use soundcraft_audio_io::FileFormat;
-use soundcraft_automation::args::{
-    AutomationArgs, ControlClientArgs, ControlTarget, blank_env_is_unset, control_target, long_version, name_env_vars,
-};
+use soundcraft_automation::ControlTarget;
+use soundcraft_automation::args::{AutomationArgs, ControlClientArgs, blank_env_is_unset, control_target, long_version, name_env_vars};
 
 /// Help text that names the extensions `list` gives, built once from
 /// [`FileFormat::readable_extensions`] or [`FileFormat::writable_extensions`] so it can't drift
@@ -390,7 +389,7 @@ pub(crate) struct CmdSpec {
 }
 
 /// Why a value was refused: clap prints it after the flag and its value (exit 2).
-#[derive(Debug, PartialEq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum ValueError {
     #[error("expected seconds (12.5) or a time string, not an empty value")]
     EmptyTime,
@@ -399,7 +398,7 @@ pub(crate) enum ValueError {
     #[error("expected a command id, optionally followed by `=` and JSON parameters")]
     EmptyCommandId,
     #[error("bad JSON: {0}")]
-    Json(String),
+    Json(#[from] serde_json::Error),
 }
 
 fn time_arg(s: &str) -> Result<TimeArg, ValueError> {
@@ -415,7 +414,7 @@ fn time_arg(s: &str) -> Result<TimeArg, ValueError> {
 }
 
 fn json_value(s: &str) -> Result<Value, ValueError> {
-    serde_json::from_str(s).map_err(|e| ValueError::Json(e.to_string()))
+    Ok(serde_json::from_str(s)?)
 }
 
 /// `ID` or `ID=JSON`; malformed JSON is an error, not `{}`.

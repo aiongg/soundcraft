@@ -15,6 +15,8 @@ use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::parser::ValueSource;
 use clap::{Arg, ArgAction, ArgMatches, Args, Command};
 
+use crate::ControlTarget;
+
 /// The running app a client calls (`soundcraft-cli app`).
 #[derive(Args)]
 pub struct ControlClientArgs {
@@ -30,8 +32,8 @@ pub struct ControlServerArgs {
     /// Start the localhost JSON-lines control server on this port (0 picks a free port and prints
     /// it)
     // allow_negative_numbers makes `--control -1` a bad port rather than an unexpected argument.
-    #[arg(long, value_name = "PORT", env = "SOUNDCRAFT_CONTROL_PORT", value_parser = control_port, allow_negative_numbers = true)]
-    pub control: Option<ControlPort>,
+    #[arg(long, value_name = "PORT", env = "SOUNDCRAFT_CONTROL_PORT", value_parser = control_target, allow_negative_numbers = true)]
+    pub control: Option<ControlTarget>,
 }
 
 /// The folders automation may touch. Once any root is given, files are confined to the roots, and
@@ -47,22 +49,11 @@ pub struct AutomationArgs {
     pub automation_write_root: Vec<PathBuf>,
 }
 
-/// Where a running app's control channel listens: a port, or `host:port`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ControlTarget(String);
-
-impl ControlTarget {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-/// A [`ControlTarget`], for clap's `value_parser`: `soundcraft-cli app --port` and `mcp --connect`,
-/// and SOUNDCRAFT_CONTROL_PORT, which may carry spaces.
+/// A [`ControlTarget`], for clap's `value_parser`: `soundcraft-cli app --port`, `mcp --connect`,
+/// `soundcraft --control`, and SOUNDCRAFT_CONTROL_PORT, which may carry spaces.
 pub fn control_target(s: &str) -> Result<ControlTarget, NotATarget> {
-    let s = s.trim();
-    host_and_port(s)?;
-    Ok(ControlTarget(s.to_owned()))
+    let (host, port) = host_and_port(s.trim())?;
+    Ok(ControlTarget { host: host.map(str::to_owned), port })
 }
 
 /// `PORT` or `HOST:PORT`, split. An IPv6 host goes in brackets (`[::1]:7979`), as a socket address
@@ -77,34 +68,10 @@ fn host_and_port(s: &str) -> Result<(Option<&str>, u16), NotATarget> {
     Ok((host, port.parse().map_err(|_| NotATarget)?))
 }
 
-/// A [`control_target`] or [`control_port`] value that is neither a port nor `host:port`.
+/// A [`control_target`] value that is neither a port nor `host:port`.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 #[error("expected a port, 0-65535, or host:port")]
 pub struct NotATarget;
-
-/// A desktop control server port: a port, or `host:port` as `soundcraft-cli app` takes it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ControlPort {
-    /// A port, or the port of a loopback `host:port`: the control server listens on 127.0.0.1.
-    Local(u16),
-    /// A `host:port` naming another host, which the control server can't listen on.
-    Remote(String),
-}
-
-/// The hosts a [`ControlPort::Local`] may name: the control server listens on 127.0.0.1 only.
-const LOOPBACK_HOSTS: [&str; 2] = ["127.0.0.1", "localhost"];
-
-/// A [`ControlPort`], for clap's `value_parser`: `soundcraft --control` and
-/// SOUNDCRAFT_CONTROL_PORT, which may carry spaces. The variable may hold the `host:port`
-/// `soundcraft-cli app` takes, so one export serves both: a loopback host is dropped, and the app
-/// decides what another host means.
-pub fn control_port(s: &str) -> Result<ControlPort, NotATarget> {
-    let s = s.trim();
-    Ok(match host_and_port(s)? {
-        (Some(host), _) if !LOOPBACK_HOSTS.contains(&host) => ControlPort::Remote(s.to_owned()),
-        (_, port) => ControlPort::Local(port),
-    })
-}
 
 /// `0.1.0 (linux x86_64)`: the workspace version and the platform the binary was built for. Every
 /// crate takes its version from the workspace, so the value is the same in both binaries. A
@@ -166,45 +133,39 @@ mod tests {
     use super::*;
 
     #[test]
-    fn control_port_accepts_valid_numbers() {
-        assert_eq!(control_port("50494"), Ok(ControlPort::Local(50494)));
-        assert_eq!(control_port(" 8080 "), Ok(ControlPort::Local(8080)));
-        assert_eq!(control_port("0"), Ok(ControlPort::Local(0)));
-    }
-
-    #[test]
-    fn control_port_takes_the_port_of_a_loopback_host_and_port() {
-        for loopback in ["127.0.0.1:7979", "localhost:7979", " 127.0.0.1:7979 "] {
-            assert_eq!(control_port(loopback), Ok(ControlPort::Local(7979)), "{loopback:?}");
-        }
-        for remote in ["10.0.0.5:7979", "example.com:7979", "[::1]:7979", "[::2]:7979"] {
-            assert_eq!(control_port(remote), Ok(ControlPort::Remote(remote.to_owned())), "{remote:?}");
-        }
-    }
-
-    #[test]
-    fn control_port_rejects_anything_else() {
-        for bad in ["78787", "-1", "", "x", ":7979", "localhost:x", "::1:7979"] {
-            assert_eq!(control_port(bad), Err(NotATarget), "{bad:?}");
-        }
-    }
-
-    #[test]
     fn control_target_is_a_port_or_host_and_port() {
-        for good in ["7979", "0", "localhost:7979", "127.0.0.1:1", "[::1]:7979"] {
-            assert_eq!(control_target(good).map(|t| t.as_str().to_owned()), Ok(good.to_owned()), "{good:?}");
-        }
-        for spaced in [" 7979", "localhost:7979 "] {
-            assert_eq!(control_target(spaced).map(|t| t.as_str().to_owned()), Ok(spaced.trim().to_owned()), "{spaced:?}");
-        }
+        let target = |host: Option<&str>, port| Ok(ControlTarget { host: host.map(str::to_owned), port });
+        assert_eq!(control_target("7979"), target(None, 7979));
+        assert_eq!(control_target(" 0 "), target(None, 0));
+        assert_eq!(control_target("localhost:7979 "), target(Some("localhost"), 7979));
+        assert_eq!(control_target("10.0.0.5:1"), target(Some("10.0.0.5"), 1));
+        assert_eq!(control_target("[::1]:7979"), target(Some("[::1]"), 7979));
         for bad in ["", "x", "78787", ":7979", "host:", "host:x", "-1", "::1:7979", "[::1:7979"] {
             assert_eq!(control_target(bad), Err(NotATarget), "{bad:?}");
         }
     }
 
+    /// The control server listens on 127.0.0.1 only: `[::1]` is another address.
+    #[test]
+    fn a_loopback_target_is_a_port_127_0_0_1_or_localhost() {
+        for loopback in ["50494", "127.0.0.1:7979", "localhost:7979"] {
+            assert!(control_target(loopback).is_ok_and(|t| t.is_loopback()), "{loopback:?}");
+        }
+        for remote in ["10.0.0.5:7979", "example.com:7979", "[::1]:7979"] {
+            assert!(control_target(remote).is_ok_and(|t| !t.is_loopback()), "{remote:?}");
+        }
+    }
+
+    #[test]
+    fn a_control_target_displays_as_a_socket_address() {
+        for (given, shown) in [("7979", "127.0.0.1:7979"), ("localhost:1", "localhost:1"), ("[::1]:7979", "[::1]:7979")] {
+            assert_eq!(control_target(given).map(|t| t.to_string()), Ok(shown.to_owned()), "{given:?}");
+        }
+    }
+
     /// A command with one port flag backed by a variable no test sets.
     fn port_command() -> Command {
-        Command::new("t").arg(Arg::new("port").long("port").env("SOUNDCRAFT_TEST_UNSET_PORT").value_parser(control_port))
+        Command::new("t").arg(Arg::new("port").long("port").env("SOUNDCRAFT_TEST_UNSET_PORT").value_parser(control_target))
     }
 
     #[test]

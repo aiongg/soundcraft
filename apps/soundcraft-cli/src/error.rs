@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use soundcraft_audio_io::AudioError;
+use soundcraft_automation::RemoteError;
 use soundcraft_engine::EngineError;
+use soundcraft_engine::file_access::RootError;
 
 /// Why a subcommand failed: printed as `error: {e}`, exit 1.
 #[derive(Debug, thiserror::Error)]
@@ -22,20 +24,19 @@ pub(crate) enum CliError {
     File { path: PathBuf, source: std::io::Error },
     #[error("{}: {source}", path.display())]
     Audio { path: PathBuf, source: AudioError },
-    /// The engine takes session and bounce paths as text.
+    /// A `--bounce` or `--save` path: the engine's commands take them in JSON, which holds only
+    /// text.
     #[error("{}: the path is not valid Unicode", .0.display())]
     NotUnicode(PathBuf),
-    /// The control channel of a running app failed ([`soundcraft_automation::Backend::call`] reports a string).
-    #[error("{0}")]
-    Remote(String),
-    /// The automation roots were refused ([`soundcraft_engine::file_access::AutomationRoots::new`] reports a string).
-    #[error("{0}")]
-    Roots(String),
+    #[error(transparent)]
+    Remote(#[from] RemoteError),
+    #[error(transparent)]
+    Roots(#[from] RootError),
     #[error(transparent)]
     Serve(std::io::Error),
 }
 
-/// A path as the text the engine takes.
+/// A path as the text the engine's commands take.
 pub(crate) fn unicode(path: &Path) -> Result<&str, CliError> {
     path.to_str().ok_or_else(|| CliError::NotUnicode(path.to_owned()))
 }
