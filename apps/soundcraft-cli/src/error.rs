@@ -1,15 +1,11 @@
 use soundcraft_audio_io::AudioError;
 use soundcraft_engine::EngineError;
 
-use crate::automation_args::RootFlagError;
-
 /// Why a subcommand failed: printed as `error: {e}`, exit 1.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CliError {
     #[error(transparent)]
     Usage(#[from] UsageError),
-    #[error(transparent)]
-    RootFlag(#[from] RootFlagError),
     #[error(transparent)]
     Convert(#[from] ConvertError),
     #[error(transparent)]
@@ -38,31 +34,9 @@ pub(crate) enum CliError {
     Serve(std::io::Error),
 }
 
-/// The command line was malformed. The hand parser reports these until clap takes it over.
+/// A command line clap accepts but the subcommand refuses.
 #[derive(Debug, PartialEq, thiserror::Error)]
 pub(crate) enum UsageError {
-    #[error("unknown subcommand `{0}`")]
-    UnknownSubcommand(String),
-    #[error("unknown option {0}")]
-    UnknownOption(String),
-    #[error("{0} takes no value")]
-    TakesNoValue(String),
-    #[error("{0} needs a value")]
-    NeedsValue(String),
-    #[error("info FILE")]
-    Info,
-    #[error("convert IN OUT")]
-    Convert,
-    #[error("script FILE")]
-    Script,
-    #[error("describe ID")]
-    Describe,
-    #[error("app [--port P] METHOD [JSON]")]
-    App,
-    #[error("--connect needs a port or host:port")]
-    ConnectNeedsPort,
-    #[error("unknown mcp option `{0}`")]
-    UnknownMcpOption(String),
     #[error(
         "--automation-read-root and --automation-write-root confine the in-process server; a running app is not confined by them, \
 so drop --connect (or use --connect without the roots)"

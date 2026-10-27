@@ -1,11 +1,12 @@
-use super::error::{CliError, UsageError};
+use super::args::InfoArgs;
+use super::error::CliError;
 use super::session::warn_missing;
 use serde_json::json;
 use soundcraft_engine::Engine;
 use std::io::Write;
 
-pub(crate) fn info(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> Result<(), CliError> {
-    let Some(path) = args.first() else { return Err(UsageError::Info.into()) };
+pub(crate) fn info(args: &InfoArgs, out: &mut dyn Write, err: &mut dyn Write) -> Result<(), CliError> {
+    let path = &args.file;
     if path.ends_with(".scraft") {
         let mut e = Engine::default();
         let missing = soundcraft_engine::io::open_session(&mut e, path)?;

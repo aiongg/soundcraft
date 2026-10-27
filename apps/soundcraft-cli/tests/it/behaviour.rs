@@ -1,5 +1,5 @@
 //! How `soundcraft-cli` parses its arguments and reports results today, run as the real binary.
-//! These pin the hand-written parser's behaviour, quirks included; a change to it updates them on purpose.
+//! A change to the command line's behaviour updates them on purpose.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -67,6 +67,14 @@ fn assert_silent_success(got: &Invoke) {
     assert_eq!((got.code, got.stdout.as_str(), got.stderr.as_str()), (0, "", ""));
 }
 
+/// Exit 2, nothing on stdout, and a clap usage error starting with `error: {message}` on stderr.
+#[track_caller]
+fn assert_usage_error(got: &Invoke, message: &str) {
+    assert_eq!(got.code, 2, "stderr: {}", got.stderr);
+    assert_eq!(got.stdout, "");
+    assert!(got.stderr.starts_with(&format!("error: {message}")), "{}", got.stderr);
+}
+
 /// The OS's message for a missing file: error 2 is `ENOENT` on Unix and `ERROR_FILE_NOT_FOUND` on Windows.
 fn not_found() -> std::io::Error {
     std::io::Error::from_raw_os_error(2)
@@ -80,101 +88,27 @@ fn assert_refused(got: &Invoke, port: u16) {
     assert!(got.stderr.starts_with(&prefix) && got.stderr.contains(" (os error ") && got.stderr.ends_with(")\n"), "{}", got.stderr);
 }
 
-// ---- top level ----
-
-// ---- --help / -h after each subcommand ----
+// ---- unknown flags ----
 
 #[test]
-fn mcp_ignores_help_and_exits_cleanly_on_empty_stdin() {
-    let dir = sandbox("help-mcp");
-    for flag in ["--help", "-h"] {
-        assert_silent_success(&invoke(&dir, &["mcp", flag]));
-    }
-}
-
-// ---- unknown flag on every subcommand ----
-
-#[test]
-fn unknown_flag_is_rejected_by_convert_run_and_script() {
+fn unknown_flags_stop_the_work_before_it_starts() {
     let dir = sandbox("unknown-flag-reject");
-    assert_fails(&invoke(&dir, &["convert", "in.wav", "out.wav", "--bogus"]), "unknown option --bogus");
-    assert_fails(&invoke(&dir, &["run", "--bogus"]), "unknown option --bogus");
-    assert_fails(&invoke(&dir, &["run", "--bogus", "--cmd", "track.new"]), "unknown option --bogus");
-    assert_fails(&invoke(&dir, &["script", "s.txt", "--bogus"]), "unknown option --bogus");
-    assert!(!dir.join("out.wav").exists());
+    assert_usage_error(&invoke(&dir, &["convert", "in.wav", "out.wav", "--bogus"]), "unexpected argument '--bogus' found");
+    assert_usage_error(&invoke(&dir, &["run", "--bogus", "--save", "s.scraft"]), "unexpected argument '--bogus' found");
+    assert_usage_error(&invoke(&dir, &["script", "s.txt", "--bogus"]), "unexpected argument '--bogus' found");
+    // A single-dash word is a flag too.
+    assert_usage_error(&invoke(&dir, &["convert", "in.wav", "out.wav", "-x"]), "unexpected argument '-x' found");
+    assert!(!dir.join("out.wav").exists() && !dir.join("s.scraft").exists());
 }
 
 #[test]
-fn unknown_flag_is_read_as_a_value_or_ignored_elsewhere() {
-    let dir = sandbox("unknown-flag-ignore");
-    // info: the first argument is the file, later ones are ignored.
-    let info = invoke(&dir, &["info", "in.wav", "--bogus"]);
-    assert_eq!((info.code, info.stderr.as_str()), (0, ""));
-    assert!(info.stdout.contains("\"frames\": 200"), "{}", info.stdout);
-    assert_fails(&invoke(&dir, &["info", "--bogus"]), &format!("--bogus: {}", not_found()));
-    // commands: the first argument is a filter; a later one is ignored.
-    assert_silent_success(&invoke(&dir, &["commands", "--bogus"]));
-    assert_eq!(invoke(&dir, &["commands", "bounce", "--bogus"]).stdout, invoke(&dir, &["commands", "bounce"]).stdout);
-    // describe: the first argument is the id; a later one is ignored.
-    assert_fails(&invoke(&dir, &["describe", "--bogus"]), "unknown command `--bogus`");
-    let describe = invoke(&dir, &["describe", "file.bounce_mix", "--bogus"]);
-    assert_eq!((describe.code, describe.stdout), (0, invoke(&dir, &["describe", "file.bounce_mix"]).stdout));
-    // parity and plugins ignore every argument but parity's --write.
-    let parity = invoke(&dir, &["parity", "--bogus"]);
-    assert_eq!((parity.code, parity.stdout, parity.stderr), (0, invoke(&dir, &["parity"]).stdout, String::new()));
-    let plugins = invoke(&dir, &["plugins", "--bogus"]);
-    assert_eq!((plugins.code, plugins.stdout, plugins.stderr), (0, invoke(&dir, &["plugins"]).stdout, String::new()));
-    // app: a `--` word is dropped from the positionals, so the call still goes out and is refused.
-    assert_refused(&invoke(&dir, &["app", "--port", "1", "--bogus", "session.inspect"]), 1);
-    assert_fails(&invoke(&dir, &["app", "--bogus"]), "app [--port P] METHOD [JSON]");
-    // mcp: unknown plain flags are ignored; `--automation-*` flags are rejected.
-    assert_silent_success(&invoke(&dir, &["mcp", "--bogus"]));
-    assert_fails(&invoke(&dir, &["mcp", "--automation-bogus", "x"]), "unknown mcp option `--automation-bogus`");
-    assert_fails(&invoke(&dir, &["mcp", "--automation-bogus=x"]), "unknown mcp option `--automation-bogus=x`");
-}
-
-#[test]
-fn single_dash_words_are_never_options() {
-    let dir = sandbox("single-dash");
-    let got = invoke(&dir, &["convert", "in.wav", "out.wav", "-x"]);
-    assert_eq!(got.code, 0, "{}", got.stderr);
-    assert!(dir.join("out.wav").exists());
-    assert_silent_success(&invoke(&dir, &["run", "-x"]));
-}
-
-// ---- positionals ----
-
-#[test]
-fn missing_and_extra_positionals() {
-    let dir = sandbox("positionals");
-    assert_fails(&invoke(&dir, &["info"]), "info FILE");
-    assert_fails(&invoke(&dir, &["convert"]), "convert IN OUT");
-    assert_fails(&invoke(&dir, &["convert", "in.wav"]), "convert IN OUT");
-    assert_fails(&invoke(&dir, &["script"]), "script FILE");
-    assert_fails(&invoke(&dir, &["describe"]), "describe ID");
-    assert_fails(&invoke(&dir, &["app"]), "app [--port P] METHOD [JSON]");
-    assert_fails(&invoke(&dir, &["app", "--port", "1"]), "app [--port P] METHOD [JSON]");
-    // Extra positionals are ignored by every subcommand that takes any.
-    assert_eq!(invoke(&dir, &["convert", "in.wav", "extra.wav", "third"]).code, 0);
-    assert!(dir.join("extra.wav").exists());
-    assert_eq!(invoke(&dir, &["script", "s.txt", "extra"]).stdout, "track.new: {\"tracks\":[1]}\n");
-    assert_eq!(invoke(&dir, &["run", "extra"]).code, 0);
-    assert_fails(&invoke(&dir, &["info", "a", "b"]), &format!("a: {}", not_found()));
-    assert_silent_success(&invoke(&dir, &["mcp", "extra"]));
-    assert_eq!(invoke(&dir, &["parity", "extra"]).code, 0);
-    assert_eq!(invoke(&dir, &["plugins", "extra"]).code, 0);
-}
-
-#[test]
-fn convert_flags_before_the_positionals_are_taken_as_file_names() {
+fn convert_flags_may_come_before_or_between_the_positionals() {
     let dir = sandbox("convert-order");
-    // `--rate` is IN, `44100` is OUT: the tool looks for a file called `--rate`.
-    assert_fails(&invoke(&dir, &["convert", "--rate", "44100", "in.wav", "out.wav"]), &format!("--rate: {}", not_found()));
-    // Flags between IN and OUT: the flag word becomes OUT and the value is dropped.
-    let got = invoke(&dir, &["convert", "in.wav", "--rate", "44100", "out.wav"]);
-    assert_eq!((got.code, got.stdout.as_str(), got.stderr.as_str()), (0, "wrote --rate (1 ch, 44100 Hz, 0.00 s)\n", ""));
-    assert!(dir.join("--rate").exists());
-    assert!(!dir.join("out.wav").exists());
+    let got = invoke(&dir, &["convert", "--rate", "44100", "in.wav", "a.wav"]);
+    assert_eq!((got.code, got.stdout.as_str(), got.stderr.as_str()), (0, "wrote a.wav (1 ch, 44100 Hz, 0.00 s)\n", ""));
+    let got = invoke(&dir, &["convert", "in.wav", "--rate", "44100", "b.wav"]);
+    assert_eq!((got.code, got.stdout.as_str(), got.stderr.as_str()), (0, "wrote b.wav (1 ch, 44100 Hz, 0.00 s)\n", ""));
+    assert_eq!((rate_of(&dir, "a.wav"), rate_of(&dir, "b.wav")), (44_100, 44_100));
 }
 
 // ---- value flags ----
@@ -197,27 +131,27 @@ fn convert_value_flags_take_a_separate_or_inline_value() {
 #[test]
 fn convert_value_flag_without_a_value_or_with_a_bad_one_fails() {
     let dir = sandbox("convert-bad-values");
-    assert_fails(&invoke(&dir, &["convert", "in.wav", "o.wav", "--rate"]), "--rate needs a value");
-    assert_fails(&invoke(&dir, &["convert", "in.wav", "o.wav", "--bit-depth"]), "--bit-depth needs a value");
-    // A following `--` word is the next flag, not the value.
-    assert_fails(&invoke(&dir, &["convert", "in.wav", "o.wav", "--rate", "--normalize"]), "--rate needs a value");
+    assert_usage_error(&invoke(&dir, &["convert", "in.wav", "o.wav", "--rate"]), "a value is required for '--rate <HZ>' but none was supplied");
+    assert_usage_error(&invoke(&dir, &["convert", "in.wav", "o.wav", "--bit-depth"]), "a value is required for '--bit-depth <16|24|32f>'");
+    // A following flag is the next flag, not the value.
+    assert_usage_error(&invoke(&dir, &["convert", "in.wav", "o.wav", "--rate", "--normalize"]), "a value is required for '--rate <HZ>'");
     assert_fails(&invoke(&dir, &["convert", "in.wav", "o.wav", "--rate", "0"]), "--rate: expected a sample rate in Hz, got `0`");
     assert_fails(&invoke(&dir, &["convert", "in.wav", "o.wav", "--rate=abc"]), "--rate: expected a sample rate in Hz, got `abc`");
     assert_fails(&invoke(&dir, &["convert", "in.wav", "o.wav", "--bit-depth", "8"]), "--bit-depth: expected 16, 24 or 32f, got `8`");
-    assert_fails(&invoke(&dir, &["convert", "in.wav", "o.wav", "--normalize=1"]), "--normalize takes no value");
+    assert_usage_error(&invoke(&dir, &["convert", "in.wav", "o.wav", "--normalize=1"]), "unexpected value '1' for '--normalize' found");
     assert_fails(&invoke(&dir, &["convert", "in.wav", "o.wav", "--dither", "--no-dither"]), "--dither and --no-dither: choose one");
     assert!(!dir.join("o.wav").exists());
 }
 
 #[test]
-fn convert_repeated_flags_use_the_first_occurrence_in_either_spelling() {
+fn convert_repeated_flags_use_the_last_occurrence_in_either_spelling() {
     let dir = sandbox("convert-repeat");
     assert_eq!(invoke(&dir, &["convert", "in.wav", "a.wav", "--rate", "44100", "--rate", "22050"]).code, 0);
-    assert_eq!(rate_of(&dir, "a.wav"), 44_100);
+    assert_eq!(rate_of(&dir, "a.wav"), 22_050);
     assert_eq!(invoke(&dir, &["convert", "in.wav", "b.wav", "--rate=22050", "--rate", "44100"]).code, 0);
-    assert_eq!(rate_of(&dir, "b.wav"), 22_050);
+    assert_eq!(rate_of(&dir, "b.wav"), 44_100);
     assert_eq!(invoke(&dir, &["convert", "in.wav", "c.wav", "--bit-depth", "16", "--bit-depth", "24"]).code, 0);
-    assert_eq!(format_of(&dir, "c.wav"), "Int16");
+    assert_eq!(format_of(&dir, "c.wav"), "Int24");
     assert_eq!(invoke(&dir, &["convert", "in.wav", "d.wav", "--normalize", "--normalize"]).code, 0);
 }
 
@@ -261,14 +195,14 @@ fn run_repeated_flags() {
     let dir = sandbox("run-repeat");
     // --cmd repeats: every occurrence runs, in order.
     assert_eq!(invoke(&dir, &["run", "--cmd", "track.new", "--cmd=track.new"]).stdout, "track.new: {\"tracks\":[1]}\ntrack.new: {\"tracks\":[2]}\n");
-    // --save repeats: the first occurrence wins.
+    // --save repeats: the last occurrence wins.
     let got = invoke(&dir, &["run", "--save", "a.scraft", "--save", "b.scraft"]);
-    assert_eq!(got.stdout, "{\"audio_files_written\":0,\"path\":\"a.scraft\"}\n");
-    assert!(dir.join("a.scraft").exists() && !dir.join("b.scraft").exists());
+    assert_eq!(got.stdout, "{\"audio_files_written\":0,\"path\":\"b.scraft\"}\n");
+    assert!(!dir.join("a.scraft").exists() && dir.join("b.scraft").exists());
 }
 
 #[test]
-fn script_runs_lines_and_takes_options_after_the_file() {
+fn script_runs_lines_and_takes_options_before_or_after_the_file() {
     let dir = sandbox("script");
     let got = invoke(&dir, &["script", "s.txt"]);
     assert_eq!((got.code, got.stdout.as_str(), got.stderr.as_str()), (0, "track.new: {\"tracks\":[1]}\n", ""));
@@ -276,8 +210,7 @@ fn script_runs_lines_and_takes_options_after_the_file() {
     assert_eq!(got.stdout, "track.new: {\"tracks\":[1]}\n{\"audio_files_written\":0,\"path\":\"sv.scraft\"}\n");
     assert!(dir.join("sv.scraft").exists());
     assert_eq!(invoke(&dir, &["script", "s.txt", "--keep-going"]).stdout, "track.new: {\"tracks\":[1]}\n");
-    // Options before the file name make the option the file name.
-    assert_fails(&invoke(&dir, &["script", "--keep-going", "s.txt"]), &format!("--keep-going: {}", not_found()));
+    assert_eq!(invoke(&dir, &["script", "--keep-going", "s.txt"]).stdout, "track.new: {\"tracks\":[1]}\n");
     assert_fails(&invoke(&dir, &["script", "nope.txt"]), &format!("nope.txt: {}", not_found()));
     assert_fails(&invoke(&dir, &["script", "s.txt", "--in=nope.scraft"]), &format!("nope.scraft: {}", not_found()));
 }
@@ -326,9 +259,7 @@ fn parity_writes_a_report_with_write_in_both_spellings() {
         assert!(got.stdout.starts_with(&format!("wrote {name}: ")), "{}", got.stdout);
         assert!(std::fs::read_to_string(dir.join(name)).unwrap().starts_with("# Parity report\n"));
     }
-    // `--write` without a value reads as absent: the report goes to stdout.
-    let bare = invoke(&dir, &["parity", "--write"]);
-    assert_eq!((bare.code, bare.stdout, bare.stderr), (0, stdout_report.stdout, String::new()));
+    assert_usage_error(&invoke(&dir, &["parity", "--write"]), "a value is required for '--write <PATH>' but none was supplied");
 }
 
 // ---- app ----
@@ -345,7 +276,7 @@ fn app_port_comes_from_the_flag_then_the_environment() {
 #[test]
 fn mcp_accepts_its_flags_in_both_spellings_and_exits_cleanly_on_empty_stdin() {
     let dir = sandbox("mcp-ok");
-    for args in [vec!["mcp"], vec!["mcp", "--demo"], vec!["mcp", "--connect", "1"], vec!["mcp", "--connect=1"], vec!["mcp", "--demo=1"]] {
+    for args in [vec!["mcp"], vec!["mcp", "--demo"], vec!["mcp", "--connect", "1"], vec!["mcp", "--connect=1"]] {
         assert_silent_success(&invoke(&dir, &args));
     }
     // A root prints the confinement line to stderr (never stdout).

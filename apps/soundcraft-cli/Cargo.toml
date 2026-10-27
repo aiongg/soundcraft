@@ -24,3 +24,4 @@ soundcraft-audio-io.workspace = true
 soundcraft-dsp.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+clap.workspace = true

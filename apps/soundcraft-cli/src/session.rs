@@ -1,5 +1,5 @@
-use super::args::{ENGINE_OPTIONS, arg_value, check_options};
-use super::error::{CliError, UsageError};
+use super::args::{EngineArgs, RunArgs, ScriptArgs};
+use super::error::CliError;
 use serde_json::{Value, json};
 use soundcraft_engine::Engine;
 use std::io::Write;
@@ -11,27 +11,27 @@ pub(crate) fn warn_missing(err: &mut dyn Write, missing: &[String]) {
     }
 }
 
-fn load_engine(args: &[String], err: &mut dyn Write) -> Result<Engine, CliError> {
-    if let Some(p) = arg_value(args, "--in") {
+fn load_engine(args: &EngineArgs, err: &mut dyn Write) -> Result<Engine, CliError> {
+    if let Some(p) = &args.input {
         let mut e = Engine::default();
-        let missing = soundcraft_engine::io::open_session(&mut e, &p)?;
+        let missing = soundcraft_engine::io::open_session(&mut e, p)?;
         warn_missing(err, &missing);
         Ok(e)
-    } else if args.iter().any(|a| a == "--demo" || a == "--sample") {
+    } else if args.demo {
         Ok(soundcraft_engine::demo::demo_engine())
     } else {
         Ok(Engine::default())
     }
 }
 
-fn finish(e: &mut Engine, args: &[String], out: &mut dyn Write) -> Result<(), CliError> {
-    if let Some(path) = arg_value(args, "--bounce") {
+fn finish(e: &mut Engine, args: &EngineArgs, out: &mut dyn Write) -> Result<(), CliError> {
+    if let Some(path) = &args.bounce {
         let mut p = json!({"path": path});
-        if let Some(s) = arg_value(args, "--start") {
-            p["start"] = time_arg(&s);
+        if let Some(s) = &args.start {
+            p["start"] = time_arg(s);
         }
-        if let Some(s) = arg_value(args, "--end") {
-            p["end"] = time_arg(&s);
+        if let Some(s) = &args.end {
+            p["end"] = time_arg(s);
         }
         // No range given: bounce the whole session, not whatever edit selection the commands left.
         if p.get("start").is_none() && p.get("end").is_none() {
@@ -41,11 +41,11 @@ fn finish(e: &mut Engine, args: &[String], out: &mut dyn Write) -> Result<(), Cl
         let v = e.execute("file.bounce_mix", &p)?;
         outln!(out, "{v}");
     }
-    if let Some(path) = arg_value(args, "--save") {
+    if let Some(path) = &args.save {
         let v = e.execute("session.save", &json!({"path": path, "replace": true}))?;
         outln!(out, "{v}");
     }
-    if args.iter().any(|a| a == "--inspect") {
+    if args.inspect {
         outln!(out, "{}", serde_json::to_string_pretty(&soundcraft_engine::inspect::session(e, false)).unwrap_or_default());
     }
     Ok(())
@@ -66,36 +66,23 @@ fn parse_cmd_spec(spec: &str) -> Result<(String, Value), CliError> {
     }
 }
 
-pub(crate) fn run_cmds(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> Result<(), CliError> {
-    let options: Vec<(&str, bool)> = ENGINE_OPTIONS.iter().copied().chain([("--cmd", true)]).collect();
-    check_options(args, &options)?;
-    let mut e = load_engine(args, err)?;
-    let mut it = args.iter();
-    while let Some(a) = it.next() {
-        let spec = match a.strip_prefix("--cmd=") {
-            Some(inline) => inline,
-            None if a == "--cmd" => match it.next() {
-                Some(next) => next,
-                None => continue,
-            },
-            None => continue,
-        };
+pub(crate) fn run_cmds(args: &RunArgs, out: &mut dyn Write, err: &mut dyn Write) -> Result<(), CliError> {
+    let mut e = load_engine(&args.engine, err)?;
+    for spec in &args.cmd {
         let (id, params) = parse_cmd_spec(spec)?;
         match e.execute(&id, &params) {
             Ok(v) => outln!(out, "{id}: {v}"),
             Err(source) => return Err(CliError::Command { id, source }),
         }
     }
-    finish(&mut e, args, out)
+    finish(&mut e, &args.engine, out)
 }
 
-pub(crate) fn script(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> Result<(), CliError> {
-    let Some(path) = args.first() else { return Err(UsageError::Script.into()) };
-    let options: Vec<(&str, bool)> = ENGINE_OPTIONS.iter().copied().chain([("--keep-going", false)]).collect();
-    check_options(&args[1..], &options)?;
+pub(crate) fn script(args: &ScriptArgs, out: &mut dyn Write, err: &mut dyn Write) -> Result<(), CliError> {
+    let path = &args.file;
     let text = std::fs::read_to_string(path).map_err(|source| CliError::File { path: path.clone(), source })?;
-    let mut e = load_engine(args, err)?;
-    let keep = args.iter().any(|a| a == "--keep-going");
+    let mut e = load_engine(&args.engine, err)?;
+    let keep = args.keep_going;
     for (n, line) in text.lines().enumerate() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -114,7 +101,7 @@ pub(crate) fn script(args: &[String], out: &mut dyn Write, err: &mut dyn Write) 
             }
         }
     }
-    finish(&mut e, args, out)
+    finish(&mut e, &args.engine, out)
 }
 
 #[cfg(test)]

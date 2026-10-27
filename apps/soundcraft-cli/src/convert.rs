@@ -1,14 +1,12 @@
-use super::args::{Options, arg_value, check_options};
-use super::error::{CliError, ConvertError, UsageError};
+use super::args::ConvertArgs;
+use super::error::{CliError, ConvertError};
 use std::io::Write;
 
-pub(crate) fn convert(args: &[String], out: &mut dyn Write) -> Result<(), CliError> {
-    let (Some(input), Some(output)) = (args.first(), args.get(1)) else { return Err(UsageError::Convert.into()) };
-    const OPTIONS: &Options = &[("--rate", true), ("--bit-depth", true), ("--normalize", false), ("--dither", false), ("--no-dither", false)];
-    check_options(&args[2..], OPTIONS)?;
-    let rate = parse_rate(arg_value(args, "--rate").as_deref())?;
-    let bit_depth = parse_bit_depth(arg_value(args, "--bit-depth").as_deref())?;
-    let dither_flag = parse_dither(args)?;
+pub(crate) fn convert(args: &ConvertArgs, out: &mut dyn Write) -> Result<(), CliError> {
+    let (input, output) = (&args.input, &args.output);
+    let rate = parse_rate(args.rate.as_deref())?;
+    let bit_depth = parse_bit_depth(args.bit_depth.as_deref())?;
+    let dither_flag = parse_dither(args.dither, args.no_dither)?;
     let bytes = std::fs::read(input).map_err(|source| CliError::File { path: input.clone(), source })?;
     let ext = std::path::Path::new(input).extension().and_then(std::ffi::OsStr::to_str);
     let (info, mut buf) = soundcraft_audio_io::decode(&bytes, ext).map_err(|source| CliError::Audio { path: input.clone(), source })?;
@@ -16,7 +14,7 @@ pub(crate) fn convert(args: &[String], out: &mut dyn Write) -> Result<(), CliErr
         buf.channels = soundcraft_dsp::offline::resample(&buf.channels, buf.sample_rate, rate);
         buf.sample_rate = rate;
     }
-    let normalize = args.iter().any(|a| a == "--normalize");
+    let normalize = args.normalize;
     if normalize {
         soundcraft_dsp::offline::normalize(&mut buf.channels, -0.1, false);
     }
@@ -53,8 +51,8 @@ fn parse_bit_depth(v: Option<&str>) -> Result<soundcraft_audio_io::BitDepth, Con
 }
 
 /// `--dither` / `--no-dither`: `Some` when the caller chose, `None` to decide from the depths.
-fn parse_dither(args: &[String]) -> Result<Option<bool>, ConvertError> {
-    match (args.iter().any(|a| a == "--dither"), args.iter().any(|a| a == "--no-dither")) {
+fn parse_dither(dither: bool, no_dither: bool) -> Result<Option<bool>, ConvertError> {
+    match (dither, no_dither) {
         (true, true) => Err(ConvertError::DitherConflict),
         (true, false) => Ok(Some(true)),
         (false, true) => Ok(Some(false)),
@@ -105,11 +103,10 @@ mod tests {
 
     #[test]
     fn convert_dither_flags() {
-        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert_eq!(parse_dither(&args(&["in.wav", "out.wav"])), Ok(None));
-        assert_eq!(parse_dither(&args(&["in.wav", "out.wav", "--dither"])), Ok(Some(true)));
-        assert_eq!(parse_dither(&args(&["in.wav", "out.wav", "--no-dither"])), Ok(Some(false)));
-        assert!(parse_dither(&args(&["in.wav", "out.wav", "--dither", "--no-dither"])).is_err());
+        assert_eq!(parse_dither(false, false), Ok(None));
+        assert_eq!(parse_dither(true, false), Ok(Some(true)));
+        assert_eq!(parse_dither(false, true), Ok(Some(false)));
+        assert!(parse_dither(true, true).is_err());
     }
 
     #[test]

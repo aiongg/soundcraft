@@ -1,5 +1,5 @@
-use super::args::arg_value;
-use super::error::{CliError, UsageError};
+use super::args::AppArgs;
+use super::error::CliError;
 use serde_json::{Value, json};
 use soundcraft_automation::{Backend, Remote};
 use std::io::Write;
@@ -37,17 +37,11 @@ fn app_request(method: &str, params: Value) -> (String, Value) {
     }
 }
 
-pub(crate) fn app(args: &[String], out: &mut dyn Write) -> Result<(), CliError> {
-    let port = arg_value(args, "--port").or_else(|| std::env::var("SOUNDCRAFT_CONTROL_PORT").ok()).unwrap_or_else(|| "7979".into());
-    let positional: Vec<&String> = args
-        .iter()
-        .enumerate()
-        .filter(|(i, a)| !(a.starts_with("--") || (*i > 0 && args.get(i - 1).is_some_and(|p| p == "--port"))))
-        .map(|(_, a)| a)
-        .collect();
-    let Some(method) = positional.first() else { return Err(UsageError::App.into()) };
-    let params = match positional.get(1) {
-        Some(p) => serde_json::from_str::<Value>(p).map_err(|source| CliError::CmdJson { id: (*method).clone(), source })?,
+pub(crate) fn app(args: &AppArgs, out: &mut dyn Write) -> Result<(), CliError> {
+    let port = args.port.clone().or_else(|| std::env::var("SOUNDCRAFT_CONTROL_PORT").ok()).unwrap_or_else(|| "7979".into());
+    let method = &args.method;
+    let params = match &args.json {
+        Some(p) => serde_json::from_str::<Value>(p).map_err(|source| CliError::CmdJson { id: method.clone(), source })?,
         None => json!({}),
     };
     let mut r = Remote::new(&port);
