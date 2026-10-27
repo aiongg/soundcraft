@@ -6,14 +6,38 @@ use std::borrow::Cow;
 use std::ffi::OsString;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use clap::builder::NonEmptyStringValueParser;
 use clap::error::ErrorKind;
 use clap::{ArgAction, Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 use serde_json::{Value, json};
+use soundcraft_audio_io::FileFormat;
 use soundcraft_automation::args::{
     AutomationArgs, ControlClientArgs, ControlTarget, blank_env_is_unset, control_target, long_version, name_env_vars,
 };
+
+/// Help text that names the extensions `list` gives, built once from
+/// [`FileFormat::readable_extensions`] or [`FileFormat::writable_extensions`] so it can't drift
+/// from what the code accepts.
+fn with_formats(cell: &'static OnceLock<String>, before: &str, list: fn() -> Vec<&'static str>, after: &str) -> &'static str {
+    cell.get_or_init(|| format!("{before}({}){after}", list().join(", ")))
+}
+
+fn info_file_help() -> &'static str {
+    static C: OnceLock<String> = OnceLock::new();
+    with_formats(&C, "An audio file ", FileFormat::readable_extensions, " or a .scraft session")
+}
+
+fn read_help() -> &'static str {
+    static C: OnceLock<String> = OnceLock::new();
+    with_formats(&C, "The audio file to read ", FileFormat::readable_extensions, "")
+}
+
+fn write_help() -> &'static str {
+    static C: OnceLock<String> = OnceLock::new();
+    with_formats(&C, "The audio file to write; its extension picks the format ", FileFormat::writable_extensions, "")
+}
 
 /// soundcraft-cli: SoundCraft without a window
 #[derive(Parser)]
@@ -41,7 +65,7 @@ pub(crate) enum Command {
 /// Print an audio file's format as JSON, or a .scraft session's summary
 #[derive(Args)]
 pub(crate) struct InfoArgs {
-    /// An audio file or a .scraft session
+    #[arg(help = info_file_help())]
     pub(crate) file: PathBuf,
     /// One line of JSON instead of pretty-printed (a .scraft summary is text and ignores it)
     #[arg(long)]
@@ -51,14 +75,11 @@ pub(crate) struct InfoArgs {
 /// Convert an audio file: resample, change the bit depth, normalize
 ///
 /// Dithers only when the output loses resolution, unless --dither or --no-dither says otherwise.
-/// The output's extension picks its format.
 #[derive(Args)]
 pub(crate) struct ConvertArgs {
-    /// The audio file to read
-    #[arg(value_name = "IN")]
+    #[arg(value_name = "IN", help = read_help())]
     pub(crate) input: PathBuf,
-    /// The audio file to write
-    #[arg(value_name = "OUT")]
+    #[arg(value_name = "OUT", help = write_help())]
     pub(crate) output: PathBuf,
     /// The output's bit depth
     #[arg(long, value_enum, value_name = "16|24|32f", default_value = "24")]

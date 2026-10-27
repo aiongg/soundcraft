@@ -99,6 +99,18 @@ fn help_subcommand_shows_that_subcommands_help() {
 }
 
 #[test]
+fn help_names_every_format_the_command_reads_and_writes() {
+    use soundcraft_audio_io::FileFormat;
+    let read = format!("({})", FileFormat::readable_extensions().join(", "));
+    let write = format!("its extension picks the format ({})", FileFormat::writable_extensions().join(", "));
+    let convert = invoke(&["convert", "--help"]);
+    let convert = assert_help(&convert);
+    assert!(convert.contains(&read) && convert.contains(&write), "{convert}");
+    let info = invoke(&["info", "--help"]);
+    assert!(assert_help(&info).contains(&read), "{}", info.stdout);
+}
+
+#[test]
 fn no_arguments_prints_the_help_to_stderr_and_exits_2() {
     let got = invoke(&[]);
     assert_eq!((got.code, got.stdout.as_str()), (2, ""));

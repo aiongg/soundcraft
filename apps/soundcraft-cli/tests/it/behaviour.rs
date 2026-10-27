@@ -167,7 +167,7 @@ fn repeated_flags_are_usage_errors_in_either_spelling() {
 fn convert_input_and_output_errors() {
     let dir = sandbox("convert-io");
     assert_fails(&invoke(&dir, &["convert", "nope.wav", "o.wav"]), &format!("nope.wav: {}", not_found()));
-    assert_fails(&invoke(&dir, &["convert", "in.wav", "o.xyz"]), "o.xyz: cannot write `.xyz` files (supported: wav, aif, aiff, flac)");
+    assert_fails(&invoke(&dir, &["convert", "in.wav", "o.xyz"]), "o.xyz: cannot write `.xyz` files (supported: wav, wave, bwf, aif, aiff, flac)");
 }
 
 #[test]

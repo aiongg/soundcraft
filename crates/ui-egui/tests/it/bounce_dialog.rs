@@ -1,6 +1,7 @@
 //! Bounce Mix starts in the session's folder and has a Browse button for the file (#186).
 use egui::vec2;
 use egui_kittest::{Harness, kittest::Queryable};
+use soundcraft_audio_io::FileFormat;
 use soundcraft_ui_egui::{Services, SoundApp, dialogs::Dialog};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -30,7 +31,7 @@ fn bounce_starts_in_the_session_folder_and_browse_picks_the_file_and_format() {
     let default = "/Songs/Midnight Groove/Midnight Groove Bounce.wav".to_string();
     assert_eq!(*asked.borrow(), vec![("file.bounce_mix".to_string(), default)]);
     match &h.state().dialogs.open {
-        Some(Dialog::Bounce { path, format, .. }) => assert_eq!((path.as_str(), format.as_str()), ("/Mixes/Final Mix.FLAC", "flac")),
+        Some(Dialog::Bounce { path, format, .. }) => assert_eq!((path.as_str(), *format), ("/Mixes/Final Mix.FLAC", FileFormat::Flac)),
         other => panic!("{other:?}"),
     }
 }

@@ -4,6 +4,7 @@ use crate::SoundApp;
 use crate::theme::{Tokens, bold};
 use egui::{Align2, vec2};
 use serde_json::{Value, json};
+use soundcraft_audio_io::FileFormat;
 use soundcraft_engine::Engine;
 use soundcraft_engine::io::StripNames;
 use soundcraft_model::{ClipId, GroupId, Session, SourceId, TrackId};
@@ -31,7 +32,7 @@ pub mod spot;
 pub enum Dialog {
     NewTracks { count: u32, format: String, kind: String, timebase: String, name: String },
     NewSession { name: String, sample_rate: u32, demo: bool },
-    Bounce { path: String, format: String, bit_depth: String, normalize: bool, dither: bool },
+    Bounce { path: String, format: FileFormat, bit_depth: String, normalize: bool, dither: bool },
     RenameTrack { id: TrackId, name: String },
     RenameClip { id: ClipId, name: String },
     RenameMarker { id: soundcraft_model::MarkerId, name: String },
@@ -178,7 +179,7 @@ impl Dialogs {
                     .map_or(home.clone(), |d| d.display().to_string());
                 Dialog::Bounce {
                     path: format!("{dir}/{name} Bounce.wav"),
-                    format: "wav".into(),
+                    format: FileFormat::Wav,
                     bit_depth: "24".into(),
                     normalize: false,
                     dither: false,
@@ -394,18 +395,15 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
                             && let Some(p) = pick("file.bounce_mix", path)
                         {
                             *path = p;
-                            match std::path::Path::new(path.as_str()).extension().map(|x| x.to_string_lossy().to_lowercase()).as_deref() {
-                                Some("wav") => *format = "wav".into(),
-                                Some("aif" | "aiff") => *format = "aiff".into(),
-                                Some("flac") => *format = "flac".into(),
-                                _ => {}
+                            if let Some(picked) = std::path::Path::new(path.as_str()).extension().and_then(std::ffi::OsStr::to_str).and_then(FileFormat::from_write_extension) {
+                                *format = picked;
                             }
                         }
                     });
                     ui.horizontal(|ui| {
-                        egui::ComboBox::from_label("Format").selected_text(format.to_uppercase()).show_ui(ui, |ui| {
-                            for f in ["wav", "aiff", "flac"] {
-                                ui.selectable_value(format, f.to_string(), f.to_uppercase());
+                        egui::ComboBox::from_label("Format").selected_text(format.name()).show_ui(ui, |ui| {
+                            for &f in FileFormat::WRITE {
+                                ui.selectable_value(format, f, f.name());
                             }
                         });
                         egui::ComboBox::from_label("Bit Depth").selected_text(format!("{bit_depth}-bit")).show_ui(ui, |ui| {
@@ -426,10 +424,10 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
                             .color(Tokens::current().text_dim),
                     );
                     if buttons(ui, "Bounce", enter) {
-                        let p = std::path::Path::new(path.as_str()).with_extension(if format == "aiff" { "aif" } else { format.as_str() });
+                        let p = std::path::Path::new(path.as_str()).with_extension(format.default_extension());
                         crate::bounce::start(
                             app,
-                            &json!({"path": p.to_string_lossy(), "format": format, "bit_depth": bit_depth, "normalize": normalize, "dither": *dither && bit_depth.as_str() != "32f"}),
+                            &json!({"path": p.to_string_lossy(), "format": format.default_extension(), "bit_depth": bit_depth, "normalize": normalize, "dither": *dither && bit_depth.as_str() != "32f"}),
                         );
                         keep = false;
                     }

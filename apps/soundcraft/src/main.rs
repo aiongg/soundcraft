@@ -22,6 +22,7 @@ mod logging;
 mod native_menu;
 
 use env::Env;
+use soundcraft_audio_io::FileFormat;
 use soundcraft_engine::Engine;
 use soundcraft_ui_egui::{Services, SoundApp, UiState, dialogs};
 use std::sync::Arc;
@@ -171,17 +172,14 @@ fn services() -> Services {
             let d = match purpose {
                 "session.open" => d.add_filter("SoundCraft Session", &["scraft"]),
                 "file.import_midi" => d.add_filter("MIDI", &["mid", "midi", "smf"]),
-                _ => d.add_filter(
-                    "Audio",
-                    &["wav", "wave", "bwf", "aif", "aiff", "aifc", "flac", "mp3", "ogg", "oga", "m4a", "m4b", "aac", "mp4", "caf", "mkv", "webm"],
-                ),
+                _ => d.add_filter("Audio", &FileFormat::readable_extensions()),
             };
             d.pick_file().map(|p| p.to_string_lossy().into_owned())
         })),
         pick_save: Some(Box::new(|purpose: &str, default: &str| {
             let path = std::path::Path::new(default);
             let mut d = match purpose {
-                "file.bounce_mix" => rfd::FileDialog::new().add_filter("Audio", &["wav", "aif", "aiff", "flac"]),
+                "file.bounce_mix" => rfd::FileDialog::new().add_filter("Audio", &FileFormat::writable_extensions()),
                 _ => rfd::FileDialog::new().add_filter("SoundCraft Session", &["scraft"]),
             };
             if let Some(dir) = path.parent().filter(|dir| dir.is_dir()) {

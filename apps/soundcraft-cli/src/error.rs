@@ -43,6 +43,6 @@ pub(crate) fn utf8(path: &Path) -> Result<&str, CliError> {
 /// A `convert` option or output the tool refuses.
 #[derive(Debug, PartialEq, thiserror::Error)]
 pub(crate) enum ConvertError {
-    #[error("{}: cannot write `.{ext}` files (supported: {})", output.display(), soundcraft_audio_io::ENCODE_EXTENSIONS)]
+    #[error("{}: cannot write `.{ext}` files (supported: {})", output.display(), soundcraft_audio_io::FileFormat::writable_extensions().join(", "))]
     OutputFormat { output: PathBuf, ext: String },
 }
