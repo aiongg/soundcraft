@@ -8,7 +8,7 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use soundcraft_ui_egui::switch::Switch;
+use crate::switch::Switch;
 
 pub(crate) const CONFIG_DIR: &str = "SOUNDCRAFT_CONFIG_DIR";
 pub(crate) const NO_PREFS: &str = "SOUNDCRAFT_NO_PREFS";

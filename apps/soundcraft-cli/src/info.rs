@@ -8,7 +8,7 @@ use std::io::Write;
 
 pub(crate) fn info(args: &InfoArgs, out: &mut dyn Write, err: &mut dyn Write) -> Result<(), CliError> {
     let path = &args.file;
-    if path.as_os_str().as_encoded_bytes().ends_with(b".scraft") {
+    if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("scraft")) {
         let mut e = Engine::default();
         let missing = soundcraft_engine::io::open_session(&mut e, path)?;
         warn_missing(err, &missing);

@@ -263,6 +263,16 @@ fn info_prints_json_for_audio_and_fails_for_missing_files() {
     assert_fails(&invoke(&dir, &["info", "nope.wav"]), &format!("nope.wav: {}", not_found()));
 }
 
+/// The extension decides a session in any case, as the desktop app's `open_path` does.
+#[test]
+fn info_reads_a_session_whatever_the_extension_case() {
+    let dir = sandbox("info-session-case");
+    assert_eq!(invoke(&dir, &["run", "--demo", "--save", "S.SCRAFT"]).code, 0);
+    let got = invoke(&dir, &["info", "S.SCRAFT"]);
+    assert_eq!((got.code, got.stderr.as_str()), (0, ""));
+    assert!(got.stdout.starts_with("SESSION NAME:"), "{}", got.stdout);
+}
+
 #[test]
 fn info_compact_is_the_same_json_on_one_line() {
     let dir = sandbox("info-compact");
