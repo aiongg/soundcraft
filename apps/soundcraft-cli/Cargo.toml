@@ -25,6 +25,7 @@ soundcraft-dsp.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 clap.workspace = true
+same-file.workspace = true
 
 [dev-dependencies]
 clap_complete.workspace = true

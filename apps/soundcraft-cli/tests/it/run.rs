@@ -118,13 +118,14 @@ fn unknown_subcommand_is_a_usage_error() {
 /// Each subcommand's help: its usage line, then every argument and flag it takes.
 #[test]
 fn every_subcommand_has_help_listing_its_arguments() {
-    let engine = ["--in <S.scraft>", "--demo", "--sample", "--bounce <OUT>", "--start <T>", "--end <T>", "--save <S.scraft>", "--inspect"];
+    let engine =
+        ["--in <S.scraft>", "--demo", "--sample", "--bounce <OUT>", "--start <T>", "--end <T>", "--save <S.scraft>", "--inspect", "--in-place"];
     let cases: &[(&str, &str, &[&str])] = &[
         ("info", "info <FILE>", &["<FILE>"]),
         (
             "convert",
             "convert [OPTIONS] <IN> <OUT>",
-            &["<IN>", "<OUT>", "--bit-depth <16|24|32f>", "--rate <HZ>", "--normalize", "--dither", "--no-dither"],
+            &["<IN>", "<OUT>", "--bit-depth <16|24|32f>", "--rate <HZ>", "--normalize", "--dither", "--no-dither", "--in-place"],
         ),
         ("run", "run [OPTIONS]", &["--cmd <ID[=JSON]>"]),
         ("script", "script [OPTIONS] <FILE>", &["<FILE>", "--keep-going"]),

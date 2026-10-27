@@ -280,6 +280,116 @@ fn parity_writes_a_report_with_write_in_both_spellings() {
     assert_usage_error(&invoke(&dir, &["parity", "--write"]), "a value is required for '--write <PATH>' but none was supplied");
 }
 
+// ---- outputs that replace an input ----
+
+/// `in.wav`, `s.txt` and a saved session `s.scraft`.
+fn sandbox_with_session(tag: &str) -> PathBuf {
+    let dir = sandbox(tag);
+    assert_eq!(invoke(&dir, &["run", "--save", "s.scraft"]).code, 0);
+    dir
+}
+
+#[test]
+fn an_output_that_is_an_input_is_refused_before_any_work() {
+    let dir = sandbox_with_session("out-is-in");
+    std::fs::hard_link(dir.join("in.wav"), dir.join("hard.wav")).unwrap();
+    let (wav, session, script) =
+        (std::fs::read(dir.join("in.wav")).unwrap(), std::fs::read(dir.join("s.scraft")).unwrap(), std::fs::read(dir.join("s.txt")).unwrap());
+    let in_wav = dir.join("in.wav");
+    let absolute = in_wav.to_str().unwrap();
+    for out in ["in.wav", "./in.wav", "../{}/in.wav", absolute, "hard.wav"] {
+        let out = out.replace("{}", dir.file_name().unwrap().to_str().unwrap());
+        let got = invoke(&dir, &["convert", "in.wav", &out, "--rate", "44100"]);
+        assert_usage_error(&got, &format!("<OUT> {out} is the <IN> file, which it would replace: choose another file, or pass --in-place"));
+    }
+    // Nothing ran: no --cmd result, no bounce, no save.
+    let refused: &[(&[&str], &str)] = &[
+        (&["run", "--in", "s.scraft", "--cmd", "track.new", "--save", "s.scraft"], "--save s.scraft is the --in session"),
+        (&["run", "--in=./s.scraft", "--cmd", "track.new", "--bounce", "s.scraft"], "--bounce s.scraft is the --in session"),
+        // --in-place lets only --save replace the session.
+        (
+            &["run", "--in", "s.scraft", "--in-place", "--cmd", "track.new", "--bounce", "./s.scraft"],
+            "--bounce ./s.scraft is the --in session, which it would replace with audio: choose another file",
+        ),
+        (&["script", "s.txt", "--in", "s.scraft", "--in-place", "--bounce", "s.scraft"], "--bounce s.scraft is the --in session"),
+        (&["script", "s.txt", "--in", "s.scraft", "--save", "./s.scraft"], "--save ./s.scraft is the --in session"),
+        (&["script", "s.txt", "--save", "./s.txt"], "--save ./s.txt is the script file, which it would replace: choose another file"),
+        (&["script", "s.txt", "--in", "s.scraft", "--in-place", "--bounce", "s.txt"], "--bounce s.txt is the script file"),
+        (&["run", "--demo", "--cmd", "track.new", "--bounce", "b.wav", "--save", "./b.wav"], "--bounce and --save both name ./b.wav"),
+    ];
+    for (args, message) in refused {
+        let got = invoke(&dir, args);
+        assert_usage_error(&got, message);
+        assert!(got.stderr.contains("\nUsage: soundcraft-cli "), "{}", got.stderr);
+    }
+    assert_eq!(std::fs::read(dir.join("in.wav")).unwrap(), wav);
+    assert_eq!(std::fs::read(dir.join("s.scraft")).unwrap(), session);
+    assert_eq!(std::fs::read(dir.join("s.txt")).unwrap(), script);
+    assert!(!dir.join("b.wav").exists());
+    assert_usage_error(
+        &invoke(&dir, &["run", "--in-place", "--save", "s.scraft"]),
+        "the following required arguments were not provided:\n  --in <S.scraft>",
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_output_linked_to_the_input_is_refused() {
+    let dir = sandbox_with_session("out-is-in-link");
+    std::os::unix::fs::symlink("in.wav", dir.join("link.wav")).unwrap();
+    std::os::unix::fs::symlink(".", dir.join("here")).unwrap();
+    assert_usage_error(&invoke(&dir, &["convert", "in.wav", "link.wav"]), "<OUT> link.wav is the <IN> file");
+    assert_usage_error(&invoke(&dir, &["run", "--in", "s.scraft", "--save", "here/s.scraft"]), "--save here/s.scraft is the --in session");
+    // Two outputs that don't exist yet, one through a linked folder.
+    assert_usage_error(&invoke(&dir, &["run", "--bounce", "here/b.wav", "--save", "b.wav"]), "--bounce and --save both name b.wav");
+    assert_eq!(rate_of(&dir, "in.wav"), 48_000);
+}
+
+#[test]
+fn in_place_replaces_the_input_and_other_files_are_still_replaced() {
+    let dir = sandbox_with_session("in-place");
+    let got = invoke(&dir, &["convert", "in.wav", "./in.wav", "--rate", "44100", "--in-place"]);
+    assert_eq!(got.code, 0, "{}", got.stderr);
+    assert_eq!(rate_of(&dir, "in.wav"), 44_100);
+    let got = invoke(&dir, &["run", "--in", "s.scraft", "--cmd", "track.new", "--save", "s.scraft", "--in-place"]);
+    assert_eq!(got.stdout, "track.new: {\"tracks\":[1]}\n{\"audio_files_written\":0,\"path\":\"s.scraft\"}\n", "{}", got.stderr);
+    // The saved session holds that track, so the next one is the second.
+    assert_eq!(invoke(&dir, &["run", "--in", "s.scraft", "--cmd", "track.new"]).stdout, "track.new: {\"tracks\":[2]}\n");
+    // An existing file that is no input is replaced without --in-place.
+    for rate in ["32000", "22050"] {
+        let got = invoke(&dir, &["convert", "in.wav", "o.wav", "--rate", rate]);
+        assert_eq!(got.code, 0, "{}", got.stderr);
+    }
+    assert_eq!(rate_of(&dir, "o.wav"), 22_050);
+    // other.scraft gets the script's track, then is replaced by s.scraft as it is.
+    let next_track = |session: &str| invoke(&dir, &["run", "--in", session, "--cmd", "track.new"]).stdout;
+    let got = invoke(&dir, &["script", "s.txt", "--in", "s.scraft", "--save", "other.scraft"]);
+    assert_eq!(got.code, 0, "{}", got.stderr);
+    assert_eq!(next_track("other.scraft"), "track.new: {\"tracks\":[3]}\n");
+    let got = invoke(&dir, &["run", "--in", "s.scraft", "--save", "other.scraft"]);
+    assert_eq!(got.code, 0, "{}", got.stderr);
+    assert_eq!(next_track("other.scraft"), "track.new: {\"tracks\":[2]}\n");
+}
+
+/// An in-place output that is a link to the input replaces the input, and the link stays a link.
+#[cfg(unix)]
+#[test]
+fn in_place_through_a_link_replaces_the_linked_input() {
+    let dir = sandbox_with_session("in-place-link");
+    std::os::unix::fs::symlink("in.wav", dir.join("link.wav")).unwrap();
+    std::os::unix::fs::symlink("s.scraft", dir.join("link.scraft")).unwrap();
+    let got = invoke(&dir, &["convert", "in.wav", "link.wav", "--rate", "44100", "--in-place"]);
+    assert_eq!(got.stdout, "wrote link.wav (1 ch, 44100 Hz, 0.00 s)\n", "{}", got.stderr);
+    assert_eq!(rate_of(&dir, "in.wav"), 44_100);
+    let got = invoke(&dir, &["run", "--in", "s.scraft", "--cmd", "track.new", "--save", "link.scraft", "--in-place"]);
+    assert_eq!(got.code, 0, "{}", got.stderr);
+    // s.scraft holds that track, so the next one is the second.
+    assert_eq!(invoke(&dir, &["run", "--in", "s.scraft", "--cmd", "track.new"]).stdout, "track.new: {\"tracks\":[2]}\n");
+    for link in ["link.wav", "link.scraft"] {
+        assert!(dir.join(link).symlink_metadata().unwrap().file_type().is_symlink(), "{link}");
+    }
+}
+
 // ---- app ----
 
 #[test]

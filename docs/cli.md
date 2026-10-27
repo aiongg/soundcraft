@@ -51,6 +51,20 @@ root flags repeat), a value of the wrong type or out of range, flags that confli
 never takes the next flag as its value: write a value that starts with `-` as `--bounce=-x.wav`, or
 give a file as `./-x.wav`. File names that are not valid Unicode reach the command unchanged.
 
+An output that is one of the inputs is a usage error too, however the path is spelt (`a.wav`,
+`./a.wav`, a symbolic or hard link):
+
+| Subcommand | Inputs | Outputs | `--in-place` lets an output replace |
+|---|---|---|---|
+| `convert` | `IN` | `OUT` | `IN` |
+| `run` | `--in` | `--bounce`, `--save` | the `--in` session, by `--save` only |
+| `script` | `FILE`, `--in` | `--bounce`, `--save` | the `--in` session, by `--save` only; never `FILE` |
+
+`run` and `script` take `--in-place` only with `--in`. A `--bounce` naming the `--in` session, and
+`--bounce` and `--save` naming one file, are refused with or without `--in-place`. With
+`--in-place`, an output that is a symbolic link to the input replaces the file it links to; the
+link stays. An existing file that is not an input is replaced without asking.
+
 ## Environment variables
 
 | Variable | Flag | Notes |
@@ -105,15 +119,12 @@ zsh's `$fpath`, and read a page with `man -l out/soundcraft-cli.1`.
 
 soundcraft-cli follows [RFC-0012](https://github.com/storytold/craft-contrib/pull/18): clap derive
 types, thiserror errors, `run(args, out, err)` behind `main`, environment variables declared on
-their flags, generated completions and man pages, tests that pin help and every usage error, and
-the ast-grep rules in `lint/ast-grep`. The shared automation flags are declared once in
+their flags, generated completions and man pages, tests that pin help and every usage error, no
+output replacing an input without `--in-place`, and the ast-grep rules in `lint/ast-grep`. The shared automation flags are declared once in
 `crates/automation/src/args.rs`.
 
 Rules not followed yet:
 
-- **Nothing destructive by default (rule 1.6).** `convert IN OUT` writes over `OUT` even when it is
-  the same file as `IN`. There is no `--in-place` flag and no refusal. The same goes for `--save`
-  and `--bounce`, which replace an existing file.
 - **JSON flag (rule 1.3).** There is no `--compact`: JSON output is always pretty-printed.
   `commands`, `plugins`, `parity` and the `info` summary of a `.scraft` session print text, and have
   no `--json` flag.

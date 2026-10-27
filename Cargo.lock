@@ -4189,6 +4189,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "clap_mangen",
+ "same-file",
  "serde_json",
  "soundcraft-audio-io",
  "soundcraft-automation",

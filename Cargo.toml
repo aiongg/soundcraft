@@ -38,6 +38,8 @@ log = "0.4"
 # All date/time conversion goes through chrono (no hand-rolled calendar code beyond the 400-year range extension; AGENTS.md).
 chrono = { version = "0.4.45", default-features = false, features = ["std"] }
 rayon = "1"
+# Whether an output path is one of the inputs (the CLI refuses to replace an input unless asked).
+same-file = "1"
 proptest = "1"
 
 # audio

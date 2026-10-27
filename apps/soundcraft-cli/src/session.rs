@@ -41,8 +41,8 @@ fn finish(e: &mut Engine, args: &EngineArgs, out: &mut dyn Write) -> Result<(), 
         let v = e.execute("file.bounce_mix", &p)?;
         outln!(out, "{v}");
     }
-    if let Some(path) = &args.save {
-        let v = e.execute("session.save", &json!({"path": utf8(path)?, "replace": true}))?;
+    if let Some(path) = args.save_path() {
+        let v = e.execute("session.save", &json!({"path": utf8(&path)?, "replace": true}))?;
         outln!(out, "{v}");
     }
     if args.inspect {
