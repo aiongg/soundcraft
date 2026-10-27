@@ -63,9 +63,6 @@ where
 
 fn dispatch(command: Command, out: &mut dyn Write, err: &mut dyn Write) -> Result<(), CliError> {
     match command {
-        Command::Version => {
-            let _ = write!(out, "{}", Cli::command().render_version());
-        }
         Command::Info(a) => info(&a, out, err)?,
         Command::Convert(a) => convert(&a, out)?,
         Command::Run(a) => run_cmds(&a, out, err)?,

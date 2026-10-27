@@ -69,7 +69,7 @@ fn top_level_help_lists_every_subcommand_on_stdout() {
     for sub in ["info", "convert", "run", "script", "commands", "describe", "app", "mcp", "parity", "plugins", "help"] {
         assert!(help.contains(&format!("\n  {sub} ")), "{sub}: {help}");
     }
-    assert!(help.contains("-V, --version") && !help.contains("  version "), "{help}");
+    assert!(help.contains("-V, --version") && !help.contains("\n  version "), "{help}");
     for spelling in ["-h", "help"] {
         let got = invoke(&[spelling]);
         assert_eq!((got.code, got.stdout, got.stderr), (0, long.stdout.clone(), String::new()), "{spelling}");
@@ -77,12 +77,25 @@ fn top_level_help_lists_every_subcommand_on_stdout() {
 }
 
 #[test]
-fn top_level_version_spellings_print_the_version_to_stdout() {
-    let expected = format!("soundcraft-cli {}\n", env!("CARGO_PKG_VERSION"));
-    for spelling in ["--version", "-V", "version"] {
+fn version_flags_print_the_long_version_to_stdout() {
+    let expected = format!("soundcraft-cli {} ({} {})\n", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH);
+    for spelling in ["--version", "-V"] {
         let got = invoke(&[spelling]);
         assert_eq!((got.code, got.stdout, got.stderr), (0, expected.clone(), String::new()), "{spelling}");
     }
+}
+
+#[test]
+fn version_is_not_a_subcommand() {
+    assert_usage_error(&invoke(&["version"]), "unrecognized subcommand 'version'");
+}
+
+#[test]
+fn help_subcommand_shows_that_subcommands_help() {
+    let got = invoke(&["help", "convert"]);
+    let help = assert_help(&got);
+    assert!(help.starts_with("Convert an audio file"), "{help}");
+    assert_eq!(help, assert_help(&invoke(&["convert", "--help"])));
 }
 
 #[test]
@@ -281,8 +294,6 @@ fn app_reports_a_refused_connection_and_checks_arguments_first() {
         vec!["app", "--port=1", "session.inspect"],
         vec!["app", "session.inspect", "--port", "1"],
         vec!["app", "--port", "1", "session.inspect", "{}"],
-        // A repeated flag: the last one wins.
-        vec!["app", "--port", "2", "--port", "1", "session.inspect"],
     ] {
         assert_refused(&invoke(&args), 1);
     }

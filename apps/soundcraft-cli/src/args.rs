@@ -4,13 +4,14 @@
 
 use std::ffi::OsString;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use clap::error::ErrorKind;
 use clap::{ArgAction, Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 
 /// soundcraft-cli: SoundCraft without a window
 #[derive(Parser)]
-#[command(name = "soundcraft-cli", version, arg_required_else_help = true, args_override_self = true)]
+#[command(name = "soundcraft-cli", version = long_version(), arg_required_else_help = true)]
 pub(crate) struct Cli {
     #[command(subcommand)]
     pub(crate) command: Command,
@@ -29,9 +30,6 @@ pub(crate) enum Command {
     Parity(ParityArgs),
     /// List the built-in plugins
     Plugins,
-    /// Print the version
-    #[command(hide = true)]
-    Version,
 }
 
 /// Print an audio file's format as JSON, or a .scraft session's summary
@@ -83,10 +81,10 @@ pub(crate) struct EngineArgs {
     #[arg(long, value_name = "OUT")]
     pub(crate) bounce: Option<String>,
     /// Where the bounce starts: seconds (12.5) or a time string
-    #[arg(long, value_name = "T")]
+    #[arg(long, value_name = "T", allow_negative_numbers = true)]
     pub(crate) start: Option<String>,
     /// Where the bounce ends: seconds (12.5) or a time string
-    #[arg(long, value_name = "T")]
+    #[arg(long, value_name = "T", allow_negative_numbers = true)]
     pub(crate) end: Option<String>,
     /// Save the session to this file at the end, replacing it
     #[arg(long, value_name = "S.scraft")]
@@ -182,6 +180,12 @@ pub(crate) struct ParityArgs {
     /// Write the report to this file instead
     #[arg(long, value_name = "PATH")]
     pub(crate) write: Option<String>,
+}
+
+/// `0.1.0 (linux x86_64)`: the version and the platform the binary was built for.
+fn long_version() -> &'static str {
+    static LONG: OnceLock<String> = OnceLock::new();
+    LONG.get_or_init(|| format!("{} ({} {})", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH))
 }
 
 /// Parse the arguments (without the binary name). clap reads them as `OsString`s: a folder need

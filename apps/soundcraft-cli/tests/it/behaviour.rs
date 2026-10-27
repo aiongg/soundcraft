@@ -144,15 +144,25 @@ fn convert_value_flag_without_a_value_or_with_a_bad_one_fails() {
 }
 
 #[test]
-fn convert_repeated_flags_use_the_last_occurrence_in_either_spelling() {
-    let dir = sandbox("convert-repeat");
-    assert_eq!(invoke(&dir, &["convert", "in.wav", "a.wav", "--rate", "44100", "--rate", "22050"]).code, 0);
-    assert_eq!(rate_of(&dir, "a.wav"), 22_050);
-    assert_eq!(invoke(&dir, &["convert", "in.wav", "b.wav", "--rate=22050", "--rate", "44100"]).code, 0);
-    assert_eq!(rate_of(&dir, "b.wav"), 44_100);
-    assert_eq!(invoke(&dir, &["convert", "in.wav", "c.wav", "--bit-depth", "16", "--bit-depth", "24"]).code, 0);
-    assert_eq!(format_of(&dir, "c.wav"), "Int24");
-    assert_eq!(invoke(&dir, &["convert", "in.wav", "d.wav", "--normalize", "--normalize"]).code, 0);
+fn repeated_flags_are_usage_errors_in_either_spelling() {
+    let dir = sandbox("repeat");
+    for args in [
+        &["convert", "in.wav", "a.wav", "--rate", "44100", "--rate", "22050"][..],
+        &["convert", "in.wav", "a.wav", "--rate=22050", "--rate", "44100"],
+        &["convert", "in.wav", "a.wav", "--bit-depth", "16", "--bit-depth", "24"],
+        &["convert", "in.wav", "a.wav", "--normalize", "--normalize"],
+        &["run", "--save", "a.scraft", "--save", "b.scraft"],
+        &["run", "--demo", "--demo"],
+        &["run", "--demo", "--sample"],
+        &["script", "s.txt", "--keep-going", "--keep-going"],
+        &["app", "--port", "1", "--port", "2", "x"],
+        &["mcp", "--demo", "--demo"],
+    ] {
+        let got = invoke(&dir, args);
+        assert_usage_error(&got, "the argument '--");
+        assert_eq!(got.code, 2, "{args:?}");
+    }
+    assert!(!dir.join("a.wav").exists() && !dir.join("a.scraft").exists());
 }
 
 #[test]
@@ -191,14 +201,24 @@ fn run_value_flags_take_a_separate_or_inline_value() {
 }
 
 #[test]
-fn run_repeated_flags() {
+fn run_cmd_repeats_and_runs_every_occurrence_in_order() {
     let dir = sandbox("run-repeat");
-    // --cmd repeats: every occurrence runs, in order.
     assert_eq!(invoke(&dir, &["run", "--cmd", "track.new", "--cmd=track.new"]).stdout, "track.new: {\"tracks\":[1]}\ntrack.new: {\"tracks\":[2]}\n");
-    // --save repeats: the last occurrence wins.
-    let got = invoke(&dir, &["run", "--save", "a.scraft", "--save", "b.scraft"]);
-    assert_eq!(got.stdout, "{\"audio_files_written\":0,\"path\":\"b.scraft\"}\n");
-    assert!(!dir.join("a.scraft").exists() && dir.join("b.scraft").exists());
+}
+
+#[test]
+fn negative_times_are_values_but_other_dash_words_are_not() {
+    let dir = sandbox("negative-time");
+    // The engine counts a position before 0, so the bounce starts a second ahead of the session.
+    for args in [&["--start", "-1"][..], &["--start=-1"]] {
+        let mut full = vec!["run", "--demo", "--end", "0.1", "--bounce", "b.wav"];
+        full.extend(args);
+        let got = invoke(&dir, &full);
+        assert_eq!(got.code, 0, "{}", got.stderr);
+        assert!(got.stdout.contains("\"seconds\":1.1"), "{}", got.stdout);
+    }
+    assert_usage_error(&invoke(&dir, &["run", "--bounce", "-x.wav"]), "unexpected argument '-x' found");
+    assert_usage_error(&invoke(&dir, &["run", "--cmd", "-x"]), "unexpected argument '-x' found");
 }
 
 #[test]
