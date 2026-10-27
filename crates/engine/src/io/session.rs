@@ -195,11 +195,11 @@ mod save_tests {
         assert_eq!(level(&reopen(&path("B/B.scraft"))), 0.5);
         std::fs::remove_file(dir.join("A/Audio Files/Audio 1_02.wav")).unwrap();
         let mut missing = Engine::default();
-        open_session(&mut missing, &path("A/A.scraft")).unwrap();
+        open_session(&mut missing, path("A/A.scraft")).unwrap();
         save_session(&mut missing, &path("B/Moved.scraft")).unwrap();
         let mut r = Engine::default();
         assert_eq!(
-            open_session(&mut r, &path("B/Moved.scraft")).unwrap(),
+            open_session(&mut r, path("B/Moved.scraft")).unwrap(),
             vec![dir.join("A").join("Audio Files").join("Audio 1_02.wav").display().to_string()]
         );
         let _ = std::fs::remove_dir_all(&dir);
