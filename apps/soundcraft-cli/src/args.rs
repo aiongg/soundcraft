@@ -394,6 +394,8 @@ pub(crate) struct CmdSpec {
 pub(crate) enum ValueError {
     #[error("expected seconds (12.5) or a time string, not an empty value")]
     EmptyTime,
+    #[error("expected a finite number of seconds")]
+    NotFinite,
     #[error("expected a command id, optionally followed by `=` and JSON parameters")]
     EmptyCommandId,
     #[error("bad JSON: {0}")]
@@ -404,7 +406,12 @@ fn time_arg(s: &str) -> Result<TimeArg, ValueError> {
     if s.is_empty() {
         return Err(ValueError::EmptyTime);
     }
-    Ok(s.parse::<f64>().map_or_else(|_| TimeArg::Text(s.to_owned()), TimeArg::Seconds))
+    match s.parse::<f64>() {
+        // JSON has no NaN or infinity: serde_json would send the engine `null`.
+        Ok(secs) if !secs.is_finite() => Err(ValueError::NotFinite),
+        Ok(secs) => Ok(TimeArg::Seconds(secs)),
+        Err(_) => Ok(TimeArg::Text(s.to_owned())),
+    }
 }
 
 fn json_value(s: &str) -> Result<Value, ValueError> {
