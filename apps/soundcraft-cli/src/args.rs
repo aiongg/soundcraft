@@ -42,6 +42,9 @@ pub(crate) enum Command {
 pub(crate) struct InfoArgs {
     /// An audio file or a .scraft session
     pub(crate) file: PathBuf,
+    /// One line of JSON instead of pretty-printed (a .scraft summary is text and ignores it)
+    #[arg(long)]
+    pub(crate) compact: bool,
 }
 
 /// Convert an audio file: resample, change the bit depth, normalize
@@ -100,6 +103,9 @@ pub(crate) struct EngineArgs {
     /// Print the session as JSON at the end
     #[arg(long)]
     pub(crate) inspect: bool,
+    /// Print the --inspect JSON on one line instead of pretty-printed
+    #[arg(long, requires = "inspect")]
+    pub(crate) compact: bool,
     /// Allow a --save that is the --in session, replacing the original
     #[arg(long, requires = "input")]
     pub(crate) in_place: bool,
@@ -107,7 +113,8 @@ pub(crate) struct EngineArgs {
 
 /// Run engine commands on a new, demo or saved session
 ///
-/// Prints each command's JSON result, then bounces, saves and inspects, in that order.
+/// Prints each command's JSON result on one line, then bounces, saves and inspects, in that order.
+/// The --inspect JSON is pretty-printed unless --compact is given.
 #[derive(Args)]
 pub(crate) struct RunArgs {
     /// An engine command, with its JSON parameters after `=` (default {}); repeat for several, run
@@ -147,6 +154,9 @@ pub(crate) struct DescribeArgs {
     /// The command's id, such as file.bounce_mix
     #[arg(value_parser = NonEmptyStringValueParser::new())]
     pub(crate) id: String,
+    /// One line of JSON instead of pretty-printed
+    #[arg(long)]
+    pub(crate) compact: bool,
 }
 
 /// Call a running app's control channel
@@ -163,6 +173,9 @@ pub(crate) struct AppArgs {
     /// Its parameters as JSON [default: {}]
     #[arg(value_parser = json_value)]
     pub(crate) json: Option<Value>,
+    /// One line of JSON instead of pretty-printed
+    #[arg(long)]
+    pub(crate) compact: bool,
 }
 
 /// Serve MCP on stdin and stdout

@@ -1,5 +1,6 @@
 use super::args::AppArgs;
 use super::error::CliError;
+use super::output::print_json;
 use serde_json::{Value, json};
 use soundcraft_automation::{Backend, Remote};
 use std::io::Write;
@@ -44,7 +45,7 @@ pub(crate) fn app(args: &AppArgs, out: &mut dyn Write) -> Result<(), CliError> {
     // A bare command id is shorthand for engine.execute. Control-channel methods stay methods.
     let (m, p) = app_request(method, params);
     let v = r.call(&m, p).map_err(CliError::Remote)?;
-    outln!(out, "{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+    print_json(out, &v, args.compact);
     Ok(())
 }
 

@@ -264,6 +264,18 @@ fn info_prints_json_for_audio_and_fails_for_missing_files() {
 }
 
 #[test]
+fn info_compact_is_the_same_json_on_one_line() {
+    let dir = sandbox("info-compact");
+    let (pretty, compact) = (invoke(&dir, &["info", "in.wav"]), invoke(&dir, &["info", "in.wav", "--compact"]));
+    assert_eq!((compact.code, compact.stderr.as_str()), (0, ""));
+    assert_eq!(compact.stdout.trim_end().lines().count(), 1, "{}", compact.stdout);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&pretty.stdout).unwrap(),
+        serde_json::from_str::<serde_json::Value>(&compact.stdout).unwrap()
+    );
+}
+
+#[test]
 fn parity_writes_a_report_with_write_in_both_spellings() {
     let dir = sandbox("parity");
     let stdout_report = invoke(&dir, &["parity"]);

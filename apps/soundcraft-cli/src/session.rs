@@ -1,5 +1,6 @@
 use super::args::{CmdSpec, EngineArgs, RunArgs, ScriptArgs};
 use super::error::{CliError, utf8};
+use super::output::print_json;
 use serde_json::{Value, json};
 use soundcraft_engine::Engine;
 use std::io::Write;
@@ -46,7 +47,7 @@ fn finish(e: &mut Engine, args: &EngineArgs, out: &mut dyn Write) -> Result<(), 
         outln!(out, "{v}");
     }
     if args.inspect {
-        outln!(out, "{}", serde_json::to_string_pretty(&soundcraft_engine::inspect::session(e, false)).unwrap_or_default());
+        print_json(out, &soundcraft_engine::inspect::session(e, false), args.compact);
     }
     Ok(())
 }

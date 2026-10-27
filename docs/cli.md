@@ -34,8 +34,11 @@ soundcraft-cli describe file.bounce_mix
 
 ## Output and exit codes
 
-Results go to standard output, as JSON where a program is meant to read them (always
-pretty-printed). Errors go to standard error as `error: <message>`. `mcp` writes only the protocol
+Results go to standard output, as JSON where a program is meant to read them. `info` (on an audio
+file), `describe`, `app` and the `--inspect` output of `run` and `script` pretty-print it; `--compact`
+prints the same JSON on one line. The result lines of `run` and `script` (`ID: JSON`) and the
+`--bounce` and `--save` results are always one line each. `commands`, `plugins`, `parity` and the
+`.scraft` summary of `info` are text. Errors go to standard error as `error: <message>`. `mcp` writes only the protocol
 to standard output.
 
 | Exit code | Meaning |
@@ -125,8 +128,8 @@ output replacing an input without `--in-place`, and the ast-grep rules in `lint/
 
 Rules not followed yet:
 
-- **JSON flag (rule 1.3).** There is no `--compact`: JSON output is always pretty-printed.
-  `commands`, `plugins`, `parity` and the `info` summary of a `.scraft` session print text, and have
-  no `--json` flag.
+- **JSON flag (rule 1.3).** `commands`, `plugins`, `parity` and the `info` summary of a `.scraft`
+  session print text and have no `--json` flag. Whether such listings need one is an open question
+  in the RFC itself.
 - **`string-error` rule (section 3).** Its ast-grep rule is on for the CLI code and the shared flags,
   not yet for the rest of the workspace.

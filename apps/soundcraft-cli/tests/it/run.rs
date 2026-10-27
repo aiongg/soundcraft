@@ -118,10 +118,20 @@ fn unknown_subcommand_is_a_usage_error() {
 /// Each subcommand's help: its usage line, then every argument and flag it takes.
 #[test]
 fn every_subcommand_has_help_listing_its_arguments() {
-    let engine =
-        ["--in <S.scraft>", "--demo", "--sample", "--bounce <OUT>", "--start <T>", "--end <T>", "--save <S.scraft>", "--inspect", "--in-place"];
+    let engine = [
+        "--in <S.scraft>",
+        "--demo",
+        "--sample",
+        "--bounce <OUT>",
+        "--start <T>",
+        "--end <T>",
+        "--save <S.scraft>",
+        "--inspect",
+        "--compact",
+        "--in-place",
+    ];
     let cases: &[(&str, &str, &[&str])] = &[
-        ("info", "info <FILE>", &["<FILE>"]),
+        ("info", "info [OPTIONS] <FILE>", &["<FILE>", "--compact"]),
         (
             "convert",
             "convert [OPTIONS] <IN> <OUT>",
@@ -130,8 +140,12 @@ fn every_subcommand_has_help_listing_its_arguments() {
         ("run", "run [OPTIONS]", &["--cmd <ID[=JSON]>"]),
         ("script", "script [OPTIONS] <FILE>", &["<FILE>", "--keep-going"]),
         ("commands", "commands [FILTER]", &["[FILTER]"]),
-        ("describe", "describe <ID>", &["<ID>"]),
-        ("app", "app [OPTIONS] <METHOD> [JSON]", &["--port <P>", "<METHOD>", "[JSON]", "[env: SOUNDCRAFT_CONTROL_PORT", "[default: 7979]"]),
+        ("describe", "describe [OPTIONS] <ID>", &["<ID>", "--compact"]),
+        (
+            "app",
+            "app [OPTIONS] <METHOD> [JSON]",
+            &["--port <P>", "--compact", "<METHOD>", "[JSON]", "[env: SOUNDCRAFT_CONTROL_PORT", "[default: 7979]"],
+        ),
         (
             "mcp",
             "mcp [OPTIONS]",
@@ -251,6 +265,29 @@ fn run_demo_and_sample_are_the_same_flag() {
     assert_eq!((demo.code, sample.code), (0, 0));
     assert_eq!(demo.stdout, sample.stdout);
     assert!(demo.stdout.contains("\"name\": \"Verb\""), "{}", demo.stdout);
+}
+
+/// `--compact` prints the same JSON on one line.
+#[track_caller]
+fn assert_compact_matches_pretty(pretty: &[&str], compact: &[&str]) {
+    let (p, c) = (invoke(pretty), invoke(compact));
+    assert_eq!((p.code, c.code), (0, 0), "{} {}", p.stderr, c.stderr);
+    assert!(p.stdout.trim_end().contains('\n'), "pretty form spans lines: {}", p.stdout);
+    assert_eq!(c.stdout.trim_end().lines().count(), 1, "{}", c.stdout);
+    assert!(c.stdout.ends_with('\n'));
+    let (p, c): (serde_json::Value, serde_json::Value) = (serde_json::from_str(&p.stdout).unwrap(), serde_json::from_str(&c.stdout).unwrap());
+    assert_eq!(p, c);
+}
+
+#[test]
+fn compact_prints_describe_and_run_inspect_on_one_line() {
+    assert_compact_matches_pretty(&["describe", "file.bounce_mix"], &["describe", "file.bounce_mix", "--compact"]);
+    assert_compact_matches_pretty(&["run", "--demo", "--inspect"], &["run", "--demo", "--inspect", "--compact"]);
+}
+
+#[test]
+fn compact_without_inspect_is_a_usage_error() {
+    assert_usage_error(&invoke(&["run", "--compact"]), "the following required arguments were not provided:\n  --inspect");
 }
 
 #[test]

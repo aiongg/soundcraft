@@ -1,5 +1,6 @@
 use super::args::{CommandsArgs, DescribeArgs, ParityArgs};
 use super::error::CliError;
+use super::output::print_json;
 use soundcraft_engine::Engine;
 use std::io::Write;
 
@@ -18,7 +19,7 @@ pub(crate) fn commands(args: &CommandsArgs, out: &mut dyn Write) {
 pub(crate) fn describe(args: &DescribeArgs, out: &mut dyn Write) -> Result<(), CliError> {
     let id = &args.id;
     let c = soundcraft_engine::find_command(id).ok_or_else(|| CliError::UnknownCommand(id.clone()))?;
-    outln!(out, "{}", serde_json::to_string_pretty(&c.info(&Engine::default())).unwrap_or_default());
+    print_json(out, &c.info(&Engine::default()), args.compact);
     Ok(())
 }
 
