@@ -1,5 +1,5 @@
 use super::args::{CmdSpec, EngineArgs, RunArgs, ScriptArgs};
-use super::error::{CliError, utf8};
+use super::error::{CliError, unicode};
 use super::output::print_json;
 use serde_json::{Value, json};
 use soundcraft_engine::Engine;
@@ -15,7 +15,7 @@ pub(crate) fn warn_missing(err: &mut dyn Write, missing: &[String]) {
 fn load_engine(args: &EngineArgs, err: &mut dyn Write) -> Result<Engine, CliError> {
     if let Some(p) = &args.input {
         let mut e = Engine::default();
-        let missing = soundcraft_engine::io::open_session(&mut e, utf8(p)?)?;
+        let missing = soundcraft_engine::io::open_session(&mut e, unicode(p)?)?;
         warn_missing(err, &missing);
         Ok(e)
     } else if args.demo {
@@ -27,7 +27,7 @@ fn load_engine(args: &EngineArgs, err: &mut dyn Write) -> Result<Engine, CliErro
 
 fn finish(e: &mut Engine, args: &EngineArgs, out: &mut dyn Write) -> Result<(), CliError> {
     if let Some(path) = &args.bounce {
-        let mut p = json!({"path": utf8(path)?});
+        let mut p = json!({"path": unicode(path)?});
         if let Some(s) = &args.start {
             p["start"] = s.to_json();
         }
@@ -43,7 +43,7 @@ fn finish(e: &mut Engine, args: &EngineArgs, out: &mut dyn Write) -> Result<(), 
         outln!(out, "{v}");
     }
     if let Some(path) = args.save_path() {
-        let v = e.execute("session.save", &json!({"path": utf8(&path)?, "replace": true}))?;
+        let v = e.execute("session.save", &json!({"path": unicode(&path)?, "replace": true}))?;
         outln!(out, "{v}");
     }
     if args.inspect {

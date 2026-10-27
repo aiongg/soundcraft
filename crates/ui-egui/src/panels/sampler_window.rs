@@ -17,7 +17,7 @@ pub const SAMPLER: &str = "sampler";
 const MARKERS: [(&str, bool); 3] = [("start", false), ("loop_start", true), ("loop_end", true)];
 
 /// Whether a file name looks like audio the sampler can load.
-pub fn is_audio_name(name: &str) -> bool {
+pub fn is_audio_name(name: impl AsRef<std::path::Path>) -> bool {
     FileFormat::from_path(name).is_some()
 }
 
@@ -143,7 +143,12 @@ pub fn sample_strip(app: &mut SoundApp, ui: &mut Ui, tid: TrackId, ins: &Insert)
             && let Some(pick) = &app.services.pick_open
             && let Some(path) = pick("mix.sampler_load", &FileFormat::readable_extensions())
         {
-            let _ = app.run("mix.sampler_load", json!({"track": tid.0, "path": path}));
+            match crate::dialogs::unicode(&path) {
+                Ok(path) => {
+                    let _ = app.run("mix.sampler_load", json!({"track": tid.0, "path": path}));
+                }
+                Err(e) => app.ui.status = e.to_string(),
+            }
         }
         if ins.sample.is_some() && ui.button("Clear").clicked() {
             let _ = app.run("mix.sampler_clear", json!({"track": tid.0}));

@@ -24,7 +24,7 @@ pub(crate) enum CliError {
     Audio { path: PathBuf, source: AudioError },
     /// The engine takes session and bounce paths as text.
     #[error("{}: the path is not valid Unicode", .0.display())]
-    NonUnicodePath(PathBuf),
+    NotUnicode(PathBuf),
     /// The control channel of a running app failed ([`soundcraft_automation::Backend::call`] reports a string).
     #[error("{0}")]
     Remote(String),
@@ -36,8 +36,8 @@ pub(crate) enum CliError {
 }
 
 /// A path as the text the engine takes.
-pub(crate) fn utf8(path: &Path) -> Result<&str, CliError> {
-    path.to_str().ok_or_else(|| CliError::NonUnicodePath(path.to_owned()))
+pub(crate) fn unicode(path: &Path) -> Result<&str, CliError> {
+    path.to_str().ok_or_else(|| CliError::NotUnicode(path.to_owned()))
 }
 
 /// A `convert` option or output the tool refuses.

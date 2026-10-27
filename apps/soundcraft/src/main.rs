@@ -57,10 +57,10 @@ impl eframe::App for App {
         }
         // Files dropped on the window: audio on an instrument track or a Sampler window loads
         // the sampler; otherwise sessions open and audio/MIDI import.
-        let dropped: Vec<String> =
-            self.0.take_dropped_files().iter().map(|f| f.path().to_string_lossy().into_owned()).filter(|s| !s.is_empty()).collect();
-        for p in dropped {
-            open_path(&mut self.0, &p);
+        for f in self.0.take_dropped_files() {
+            if !f.path().as_os_str().is_empty() {
+                dialogs::open_path(&mut self.0, f.path());
+            }
         }
         if self.0.quit_requested {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -113,23 +113,6 @@ impl eframe::App for App {
     }
 }
 
-fn open_path(app: &mut SoundApp, p: &str) {
-    let lower = p.to_ascii_lowercase();
-    let r = if lower.ends_with(".scraft") {
-        dialogs::run_or_ask(app, "session.open", serde_json::json!({"path": p}))
-    } else if lower.ends_with(".mid") || lower.ends_with(".midi") || lower.ends_with(".smf") {
-        app.run("file.import_midi", serde_json::json!({"path": p}))
-    } else {
-        // Decoded in the background so a long file doesn't freeze the window (#597).
-        let at = app.engine.session().edit.selection.start;
-        soundcraft_ui_egui::import::start(app, serde_json::json!({"path": p, "at": at}));
-        Ok(serde_json::Value::Null)
-    };
-    if let Err(e) = r {
-        log::warn!("{p}: {e}");
-    }
-}
-
 fn prefs_path(env: &Env) -> Option<std::path::PathBuf> {
     env.config_dir.as_ref().map(|b| b.join("ui.json"))
 }
@@ -169,10 +152,9 @@ fn services() -> Services {
                 "file.import_midi" => d.add_filter("MIDI", &["mid", "midi", "smf"]),
                 _ => d.add_filter("Audio", &FileFormat::readable_extensions()),
             };
-            d.pick_file().map(|p| p.to_string_lossy().into_owned())
+            d.pick_file()
         })),
-        pick_save: Some(Box::new(|purpose: &str, default: &str| {
-            let path = std::path::Path::new(default);
+        pick_save: Some(Box::new(|purpose: &str, path: &std::path::Path| {
             let mut d = match purpose {
                 "file.bounce_mix" => rfd::FileDialog::new().add_filter("Audio", &FileFormat::writable_extensions()),
                 _ => rfd::FileDialog::new().add_filter("SoundCraft Session", &["scraft"]),
@@ -183,11 +165,9 @@ fn services() -> Services {
             if let Some(n) = path.file_name().and_then(std::ffi::OsStr::to_str) {
                 d = d.set_file_name(n);
             }
-            d.save_file().map(|p| p.to_string_lossy().into_owned())
+            d.save_file()
         })),
-        pick_folder: Some(Box::new(|start: &str| {
-            rfd::FileDialog::new().set_directory(start).pick_folder().map(|p| p.to_string_lossy().into_owned())
-        })),
+        pick_folder: Some(Box::new(|start: &std::path::Path| rfd::FileDialog::new().set_directory(start).pick_folder())),
     }
 }
 
@@ -282,10 +262,7 @@ fn main() -> eframe::Result {
                 app = app.with_control(rx);
             }
             for f in &files {
-                match f.to_str() {
-                    Some(p) => open_path(&mut app, p),
-                    None => log::warn!("{}: not opened, the name is not valid Unicode", f.display()),
-                }
+                dialogs::open_path(&mut app, f);
             }
             // If the system menu bar cannot be built, keep the egui menu bar rather than fail to start.
             #[cfg(target_os = "macos")]

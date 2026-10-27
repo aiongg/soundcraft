@@ -480,3 +480,34 @@ fn mcp_roots_with_connect_are_a_usage_error() {
         "the argument '--automation-read-root <DIR>' cannot be used with '--connect <PORT>'",
     );
 }
+
+/// A name that isn't valid Unicode works wherever the tool itself reads or writes the file
+/// (`convert`); a session or bounce the engine opens or writes by text name is refused (exit 1),
+/// naming the file. Run in-process: the names need no shell.
+#[cfg(unix)]
+#[test]
+fn non_unicode_file_names() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+    let dir = sandbox("nonunicode");
+    let latin1 = |ext: &str| {
+        let mut n = b"caf\xe9.".to_vec();
+        n.extend_from_slice(ext.as_bytes());
+        dir.join(OsString::from_vec(n))
+    };
+    let run = |args: Vec<OsString>| {
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let code = soundcraft_cli::run(args, &mut out, &mut err);
+        (code, String::from_utf8_lossy(&err).into_owned())
+    };
+    let (code, err) = run(vec!["convert".into(), dir.join("in.wav").into(), latin1("flac").into()]);
+    assert_eq!(code, 0, "{err}");
+    assert!(std::fs::metadata(latin1("flac")).unwrap().len() > 0);
+    let refused = [vec!["info".into(), latin1("scraft").into()], vec!["run".into(), "--demo".into(), "--bounce".into(), latin1("wav").into()]];
+    for args in refused {
+        let (code, err) = run(args.clone());
+        assert_eq!(code, 1, "{args:?}");
+        assert!(err.contains("caf\u{FFFD}.") && err.contains("not valid Unicode"), "{err}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

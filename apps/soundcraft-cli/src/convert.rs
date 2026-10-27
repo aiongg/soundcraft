@@ -25,7 +25,8 @@ pub(crate) fn convert(args: &ConvertArgs, out: &mut dyn Write) -> Result<(), Cli
     }
     let processed = rate.is_some_and(|r| r != info.sample_rate) || normalize;
     let dither = dither_flag.unwrap_or_else(|| auto_dither(info.sample_format, bit_depth, processed));
-    let out_ext = output.extension().and_then(std::ffi::OsStr::to_str).unwrap_or("wav").to_ascii_lowercase();
+    // Lossy only for the message: an extension that is not valid Unicode names no format.
+    let out_ext = output.extension().map_or_else(|| "wav".into(), |e| e.to_string_lossy().to_ascii_lowercase());
     let Some(format) = soundcraft_audio_io::FileFormat::from_write_extension(&out_ext) else {
         return Err(ConvertError::OutputFormat { output: output.clone(), ext: out_ext }.into());
     };
