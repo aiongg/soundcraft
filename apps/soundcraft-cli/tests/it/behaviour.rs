@@ -527,11 +527,14 @@ fn non_unicode_file_names() {
     let (code, err) = run(vec!["convert".into(), dir.join("in.wav").into(), latin1("flac").into()]);
     assert_eq!(code, 0, "{err}");
     assert!(std::fs::metadata(latin1("flac")).unwrap().len() > 0);
-    let refused = [vec!["info".into(), latin1("scraft").into()], vec!["run".into(), "--demo".into(), "--bounce".into(), latin1("wav").into()]];
-    for args in refused {
-        let (code, err) = run(args.clone());
-        assert_eq!(code, 1, "{args:?}");
-        assert!(err.contains("caf\u{FFFD}.") && err.contains("not valid Unicode"), "{err}");
-    }
+    // A session opens by path; only paths that go into the engine's JSON must be Unicode.
+    let (code, err) = run(vec!["run".into(), "--demo".into(), "--save".into(), dir.join("s.scraft").into()]);
+    assert_eq!(code, 0, "{err}");
+    std::fs::rename(dir.join("s.scraft"), latin1("scraft")).unwrap();
+    let (code, err) = run(vec!["info".into(), latin1("scraft").into()]);
+    assert_eq!(code, 0, "{err}");
+    let (code, err) = run(vec!["run".into(), "--demo".into(), "--bounce".into(), latin1("wav").into()]);
+    assert_eq!(code, 1);
+    assert!(err.contains("caf\u{FFFD}.") && err.contains("not valid Unicode"), "{err}");
     let _ = std::fs::remove_dir_all(&dir);
 }
