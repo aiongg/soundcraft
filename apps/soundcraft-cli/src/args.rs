@@ -11,6 +11,7 @@ use clap::builder::NonEmptyStringValueParser;
 use clap::error::ErrorKind;
 use clap::{ArgAction, Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 use serde_json::{Value, json};
+use soundcraft_automation::args::{AutomationArgs, ControlClientArgs, ControlTarget, blank_env_is_unset, control_target, name_env_vars};
 
 /// soundcraft-cli: SoundCraft without a window
 #[derive(Parser)]
@@ -147,9 +148,8 @@ pub(crate) struct DescribeArgs {
 /// (session.inspect, ui.screenshot, …) stay methods. Prints the reply as JSON.
 #[derive(Args)]
 pub(crate) struct AppArgs {
-    /// The app's control port or host:port [default: $SOUNDCRAFT_CONTROL_PORT, else 7979]
-    #[arg(long, value_name = "P", value_parser = control_target)]
-    pub(crate) port: Option<ControlTarget>,
+    #[command(flatten)]
+    pub(crate) control: ControlClientArgs,
     /// A control method or engine command id
     #[arg(value_parser = NonEmptyStringValueParser::new())]
     pub(crate) method: String,
@@ -168,17 +168,13 @@ pub(crate) struct AppArgs {
 pub(crate) struct McpArgs {
     /// Serve a running app's control channel at this port or host:port instead of an in-process
     /// engine
-    #[arg(long, value_name = "PORT", value_parser = control_target)]
+    #[arg(long, value_name = "PORT", value_parser = control_target, conflicts_with_all = ["automation_read_root", "automation_write_root"])]
     pub(crate) connect: Option<ControlTarget>,
     /// Start the in-process engine from the demo session
     #[arg(long)]
     pub(crate) demo: bool,
-    /// A folder the agent's commands may read from; repeat for several
-    #[arg(long, value_name = "DIR", action = ArgAction::Append)]
-    pub(crate) automation_read_root: Vec<PathBuf>,
-    /// A folder the agent's commands may write to; repeat for several
-    #[arg(long, value_name = "DIR", action = ArgAction::Append)]
-    pub(crate) automation_write_root: Vec<PathBuf>,
+    #[command(flatten)]
+    pub(crate) automation: AutomationArgs,
 }
 
 /// Print the parity report (markdown)
@@ -234,16 +230,6 @@ pub(crate) struct CmdSpec {
     pub(crate) params: Value,
 }
 
-/// Where a running app's control channel listens: a port, or `host:port`.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct ControlTarget(String);
-
-impl ControlTarget {
-    pub(crate) fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
 /// Why a value was refused: clap prints it after the flag and its value (exit 2).
 #[derive(Debug, PartialEq, thiserror::Error)]
 pub(crate) enum ValueError {
@@ -253,8 +239,6 @@ pub(crate) enum ValueError {
     EmptyCommandId,
     #[error("bad JSON: {0}")]
     Json(String),
-    #[error("expected a port, 0-65535, or host:port")]
-    ControlTarget,
 }
 
 fn time_arg(s: &str) -> Result<TimeArg, ValueError> {
@@ -280,15 +264,6 @@ fn cmd_spec(s: &str) -> Result<CmdSpec, ValueError> {
     Ok(CmdSpec { id: id.to_owned(), params })
 }
 
-fn control_target(s: &str) -> Result<ControlTarget, ValueError> {
-    let port = match s.rsplit_once(':') {
-        Some((host, port)) if !host.is_empty() => port,
-        Some(_) => return Err(ValueError::ControlTarget),
-        None => s,
-    };
-    port.parse::<u16>().map(|_| ControlTarget(s.to_owned())).map_err(|_| ValueError::ControlTarget)
-}
-
 /// `0.1.0 (linux x86_64)`: the version and the platform the binary was built for.
 fn long_version() -> &'static str {
     static LONG: OnceLock<String> = OnceLock::new();
@@ -296,14 +271,17 @@ fn long_version() -> &'static str {
 }
 
 /// Parse the arguments (without the binary name). clap reads them as `OsString`s: a folder need
-/// not be valid Unicode, text must. A bare `--help` or `-h` is help even after a mistake on the
+/// not be valid Unicode, text must. A flag wins over its environment variable, unless that is
+/// empty, and a bad value from one is a usage error naming the variable. A bare `--help` or `-h` is help even after a mistake on the
 /// same line (`run --bounce --help`): clap reports the mistake first.
 pub(crate) fn parse(args: &[OsString]) -> Result<Cli, clap::Error> {
-    let mut cmd = Cli::command();
+    let mut cmd = Cli::command().mut_subcommands(|sub| sub.mut_args(blank_env_is_unset));
     let argv = std::iter::once(OsString::from("soundcraft-cli")).chain(args.iter().cloned());
     let matches = match cmd.try_get_matches_from_mut(argv) {
         Err(e) if e.kind() != ErrorKind::DisplayHelp => {
-            let Some(flag) = args.iter().take_while(|a| *a != "--").find(|a| *a == "--help" || *a == "-h") else { return Err(e) };
+            let Some(flag) = args.iter().take_while(|a| *a != "--").find(|a| *a == "--help" || *a == "-h") else {
+                return Err(name_env_vars(e, &cmd, args));
+            };
             let help = [OsString::from("soundcraft-cli"), args.first().cloned().unwrap_or_default(), flag.clone()];
             return Err(cmd.try_get_matches_from_mut(help).err().unwrap_or(e));
         }

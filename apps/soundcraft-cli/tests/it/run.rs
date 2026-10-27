@@ -130,7 +130,7 @@ fn every_subcommand_has_help_listing_its_arguments() {
         ("script", "script [OPTIONS] <FILE>", &["<FILE>", "--keep-going"]),
         ("commands", "commands [FILTER]", &["[FILTER]"]),
         ("describe", "describe <ID>", &["<ID>"]),
-        ("app", "app [OPTIONS] <METHOD> [JSON]", &["--port <P>", "<METHOD>", "[JSON]", "$SOUNDCRAFT_CONTROL_PORT"]),
+        ("app", "app [OPTIONS] <METHOD> [JSON]", &["--port <P>", "<METHOD>", "[JSON]", "[env: SOUNDCRAFT_CONTROL_PORT", "[default: 7979]"]),
         (
             "mcp",
             "mcp [OPTIONS]",
@@ -352,8 +352,8 @@ fn mcp_argument_errors_fail_before_reading_stdin() {
         &invoke(&["mcp", "--automation-read-root", "missing-dir"]),
         &format!("cannot open the automation read root `missing-dir`: {}", not_found()),
     );
-    assert_fails(
+    assert_usage_error(
         &invoke(&["mcp", "--automation-read-root", ".", "--connect", "1"]),
-        "--automation-read-root and --automation-write-root confine the in-process server; a running app is not confined by them, so drop --connect (or use --connect without the roots)",
+        "the argument '--automation-read-root <DIR>' cannot be used with '--connect <PORT>'",
     );
 }

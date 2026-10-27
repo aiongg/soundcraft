@@ -5,8 +5,12 @@
 //!   running app's `--control` port.
 //! - [`mcp::Server`]: a Model Context Protocol server over stdio (newline-delimited JSON-RPC 2.0)
 //!   exposing SoundCraft as tools and resources.
+//! - [`args`]: the control and automation launch flags and their environment variables, as clap
+//!   types.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod args;
 pub mod mcp;
 
 use serde_json::{Value, json};

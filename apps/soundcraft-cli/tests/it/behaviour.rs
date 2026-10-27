@@ -287,6 +287,38 @@ fn app_port_comes_from_the_flag_then_the_environment() {
     let dir = sandbox("app-env");
     assert_refused(&invoke_env(&dir, &["app", "session.inspect"], Some("1")), 1);
     assert_refused(&invoke_env(&dir, &["app", "--port", "2", "session.inspect"], Some("1")), 2);
+    // The flag wins before the variable is read, so a bad one doesn't matter.
+    assert_refused(&invoke_env(&dir, &["app", "--port", "2", "session.inspect"], Some("abc")), 2);
+}
+
+#[test]
+fn app_takes_an_empty_port_variable_as_unset() {
+    if std::net::TcpStream::connect("127.0.0.1:7979").is_ok() {
+        eprintln!("skipped: something listens on 127.0.0.1:7979, the default port");
+        return;
+    }
+    let dir = sandbox("app-env-empty");
+    for empty in ["", "  "] {
+        assert_refused(&invoke_env(&dir, &["app", "session.inspect"], Some(empty)), 7979);
+    }
+}
+
+#[test]
+fn a_bad_port_variable_is_a_usage_error_naming_it() {
+    let dir = sandbox("app-env-bad");
+    for bad in ["abc", "70000", ":80"] {
+        assert_usage_error(
+            &invoke_env(&dir, &["app", "session.inspect"], Some(bad)),
+            &format!("invalid value '{bad}' for 'SOUNDCRAFT_CONTROL_PORT': expected a port, 0-65535, or host:port"),
+        );
+    }
+}
+
+#[test]
+fn app_help_names_the_port_variable() {
+    let got = invoke(&sandbox("app-help"), &["app", "--help"]);
+    assert_eq!(got.code, 0, "{}", got.stderr);
+    assert!(got.stdout.contains("[env: SOUNDCRAFT_CONTROL_PORT=]\n          [default: 7979]\n"), "{}", got.stdout);
 }
 
 // ---- mcp ----
@@ -310,5 +342,19 @@ fn mcp_accepts_its_flags_in_both_spellings_and_exits_cleanly_on_empty_stdin() {
         twice.stderr.starts_with("soundcraft-cli: files confined: read none; write ") && !twice.stderr.contains("; write none"),
         "{}",
         twice.stderr
+    );
+}
+
+#[test]
+fn mcp_roots_with_connect_are_a_usage_error() {
+    let dir = sandbox("mcp-roots-connect");
+    // Refused before any folder is opened, so a missing one isn't reported.
+    assert_usage_error(
+        &invoke(&dir, &["mcp", "--connect", "1", "--automation-write-root", "missing"]),
+        "the argument '--connect <PORT>' cannot be used with '--automation-write-root <DIR>'",
+    );
+    assert_usage_error(
+        &invoke(&dir, &["mcp", "--automation-read-root=.", "--connect=1"]),
+        "the argument '--automation-read-root <DIR>' cannot be used with '--connect <PORT>'",
     );
 }

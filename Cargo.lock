@@ -4134,10 +4134,12 @@ dependencies = [
 name = "soundcraft-automation"
 version = "0.13.1"
 dependencies = [
+ "clap",
  "log",
  "serde_json",
  "soundcraft-engine",
  "soundcraft-time",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

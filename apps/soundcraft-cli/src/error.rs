@@ -7,8 +7,6 @@ use soundcraft_engine::EngineError;
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CliError {
     #[error(transparent)]
-    Usage(#[from] UsageError),
-    #[error(transparent)]
     Convert(#[from] ConvertError),
     #[error(transparent)]
     Engine(#[from] EngineError),
@@ -40,16 +38,6 @@ pub(crate) enum CliError {
 /// A path as the text the engine takes.
 pub(crate) fn utf8(path: &Path) -> Result<&str, CliError> {
     path.to_str().ok_or_else(|| CliError::NonUnicodePath(path.to_owned()))
-}
-
-/// A command line clap accepts but the subcommand refuses.
-#[derive(Debug, PartialEq, thiserror::Error)]
-pub(crate) enum UsageError {
-    #[error(
-        "--automation-read-root and --automation-write-root confine the in-process server; a running app is not confined by them, \
-so drop --connect (or use --connect without the roots)"
-    )]
-    RootsWithConnect,
 }
 
 /// A `convert` option or output the tool refuses.

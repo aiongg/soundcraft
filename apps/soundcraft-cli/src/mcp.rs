@@ -1,5 +1,6 @@
-use super::args::{ControlTarget, McpArgs};
-use super::error::{CliError, UsageError};
+use super::args::McpArgs;
+use super::error::CliError;
+use soundcraft_automation::args::ControlTarget;
 use soundcraft_automation::{Headless, Remote, mcp::Server};
 use soundcraft_engine::Engine;
 use soundcraft_engine::file_access::{self, AutomationRoots};
@@ -15,12 +16,9 @@ struct Setup {
 /// Open the roots before the server starts: a folder that can't be opened must not leave the
 /// server running unconfined.
 fn setup(args: &McpArgs) -> Result<Setup, CliError> {
-    let read: Vec<&std::path::Path> = args.automation_read_root.iter().map(std::path::PathBuf::as_path).collect();
-    let write: Vec<&std::path::Path> = args.automation_write_root.iter().map(std::path::PathBuf::as_path).collect();
+    let read: Vec<&std::path::Path> = args.automation.automation_read_root.iter().map(std::path::PathBuf::as_path).collect();
+    let write: Vec<&std::path::Path> = args.automation.automation_write_root.iter().map(std::path::PathBuf::as_path).collect();
     let roots = AutomationRoots::new(&read, &write).map_err(CliError::Roots)?;
-    if roots.is_some() && args.connect.is_some() {
-        return Err(UsageError::RootsWithConnect.into());
-    }
     Ok(Setup { connect: args.connect.clone(), demo: args.demo, roots })
 }
 
