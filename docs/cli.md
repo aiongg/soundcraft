@@ -86,12 +86,13 @@ link stays. An existing file that is not an input is replaced without asking.
 `SOUNDCRAFT_CONFIG_DIR`, `SOUNDCRAFT_NO_PREFS`, `SOUNDCRAFT_NO_SYSTEM_FONTS`, `SOUNDCRAFT_WAYLAND`
 (Linux) and `RUST_LOG` configure the desktop app (see the [README](../README.md#logs) and
 [the control protocol](control-protocol.md)), not the CLI. `soundcraft --help` lists them.
-An empty `SOUNDCRAFT_CONFIG_DIR` means no settings folder: the one exception to "an empty variable
-counts as unset" (RFC-0012 rule 1.7).
+An empty variable counts as unset (RFC-0012 rule 1.7), except `SOUNDCRAFT_CONFIG_DIR`: empty means
+no settings folder.
 
 `SOUNDCRAFT_NO_PREFS`, `SOUNDCRAFT_NO_SYSTEM_FONTS` and `SOUNDCRAFT_WAYLAND` are on/off switches with
 one rule: `1/on/true/yes` is on, `0/off/false/no` is off (any case, spaces ignored), and unset or
-blank is the default (off). Any other value is the default and logs a warning that names the variable.
+blank is the default (off). A value that isn't one of these spellings is ignored (the default applies) and logs a warning that
+names the variable.
 
 ## Desktop app launch flags
 

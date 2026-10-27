@@ -20,7 +20,7 @@ pub(crate) const RUST_LOG: &str = "RUST_LOG";
 pub(crate) const VARS: &[(&str, &str)] = &[
     // Read by clap (`env =` on `--control`), not by `Env`.
     ("SOUNDCRAFT_CONTROL_PORT", "The --control fallback: a port or host:port, ignored for another host"),
-    (CONFIG_DIR, "The settings folder (ui.json, Autosave, Presets, logs); empty: none (the exception to \"empty counts as unset\")"),
+    (CONFIG_DIR, "The settings folder (ui.json, Autosave, Presets, logs); empty: none (unlike the others, where empty counts as unset)"),
     (NO_PREFS, "1 doesn't read or write preferences and logs to stderr only; 0 or unset is off"),
     (NO_SYSTEM_FONTS, "1 uses the built-in fonts only; 0 or unset is off"),
     (WAYLAND, "Linux: 1 keeps the native Wayland backend instead of XWayland; 0 or unset is off"),
@@ -33,10 +33,10 @@ pub(crate) fn help() -> String {
     let mut out = String::from("Environment:\n");
     for (name, line) in VARS {
         out.push_str(&format!("  {name:<width$}  {line}\n"));
-        if *name == WAYLAND {
-            out.push_str("  The on/off variables take 1/on/true/yes or 0/off/false/no, in any case; any other value is\n  ignored with a warning in the log.\n");
-        }
     }
+    out.push_str(
+        "  The on/off variables take 1/on/true/yes or 0/off/false/no, in any case; any other value is\n  ignored with a warning in the log.\n",
+    );
     out.truncate(out.trim_end().len());
     out
 }
@@ -46,11 +46,12 @@ pub(crate) fn help() -> String {
 pub(crate) struct Env {
     /// The settings folder (ui.json, Autosave, Presets, logs), resolved once: `SOUNDCRAFT_CONFIG_DIR`,
     /// else the portable data folder, else the platform's. `None` when the variable is set but
-    /// empty, or no platform folder is available. The empty variable is the one exception to
-    /// "an empty variable counts as unset" (RFC-0012 rule 1.7).
+    /// empty, or no platform folder is available. Every other variable treats empty as unset
+    /// (RFC-0012 rule 1.7); this one doesn't.
     pub(crate) config_dir: Option<PathBuf>,
     pub(crate) no_prefs: Switch,
     pub(crate) no_system_fonts: Switch,
+    #[cfg(any(test, all(unix, not(target_os = "macos"))))]
     pub(crate) wayland: Switch,
 }
 
@@ -69,6 +70,7 @@ impl Env {
             config_dir: crate::config::resolve_config_dir(&get),
             no_prefs: switch(NO_PREFS),
             no_system_fonts: switch(NO_SYSTEM_FONTS),
+            #[cfg(any(test, all(unix, not(target_os = "macos"))))]
             wayland: switch(WAYLAND),
         }
     }
@@ -147,6 +149,6 @@ mod tests {
         for (name, line) in VARS {
             assert!(help.contains(name) && help.contains(line), "{name} missing from\n{help}");
         }
-        assert!(help.contains("0/off/false/no"), "{help}");
+        assert_eq!(help.matches("0/off/false/no").count(), 1, "{help}");
     }
 }

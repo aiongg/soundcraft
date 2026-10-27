@@ -12,17 +12,6 @@ pub enum Switch {
 }
 
 impl Switch {
-    /// The switch `name` holds in the environment.
-    pub fn from_env(name: &str) -> Switch {
-        match std::env::var_os(name) {
-            None => Switch::Default,
-            Some(v) => match v.to_str() {
-                Some(v) => Switch::parse(name, Some(v)),
-                None => Switch::parse(name, Some(&v.to_string_lossy())),
-            },
-        }
-    }
-
     /// Parse the value of the variable `name`; `name` only appears in the warning.
     pub fn parse(name: &str, value: Option<&str>) -> Switch {
         let Some(value) = value else { return Switch::Default };
@@ -34,15 +23,6 @@ impl Switch {
                 log::warn!("{name}={value:?} is not 1/on/true/yes or 0/off/false/no; using the default");
                 Switch::Default
             }
-        }
-    }
-
-    /// Whether the switch is on, with `default` for `Default`.
-    pub fn or(self, default: bool) -> bool {
-        match self {
-            Switch::On => true,
-            Switch::Off => false,
-            Switch::Default => default,
         }
     }
 }

@@ -190,10 +190,11 @@ fn main() -> eframe::Result {
     // First, so every start-up record (and the engine's panic hook, installed with the first
     // Engine) is captured; see `logging`.
     let logger = logging::install(env::rust_log().as_deref());
-    // After the logger, so a malformed switch is logged.
-    let env = Env::read();
     // Help, version and usage errors print and exit here, before a window or a log file exists.
     let launch = launch_args::parse(launch_args::command(), std::env::args_os().skip(1)).unwrap_or_else(|e| e.exit());
+    // After the arguments and the logger: reading resolves the settings folder, which creates it,
+    // and a malformed switch is logged.
+    let env = Env::read();
     let (demo, no_audio, control_port) = (launch.demo, launch.no_audio, launch.control_port);
     let files = launch.files;
     log::info!("SoundCraft {} ({} {})", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH);
