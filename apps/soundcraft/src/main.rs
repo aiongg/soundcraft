@@ -138,7 +138,7 @@ fn prefs_path() -> Option<std::path::PathBuf> {
 
 /// Runs without preferences (`SOUNDCRAFT_NO_PREFS`, agents' test runs) neither read nor write them.
 fn prefs_enabled() -> bool {
-    std::env::var_os("SOUNDCRAFT_NO_PREFS").is_none()
+    soundcraft_ui_egui::switch::Switch::from_env("SOUNDCRAFT_NO_PREFS") != soundcraft_ui_egui::switch::Switch::On
 }
 
 fn load_prefs() -> Option<UiState> {
@@ -264,7 +264,9 @@ fn main() -> eframe::Result {
     // winit has no file drag-and-drop on Wayland (only on X11), so dropping files from the file
     // manager showed a "no" cursor. Run through XWayland when it's there; SOUNDCRAFT_WAYLAND=1
     // keeps the native Wayland backend.
-    if std::env::var_os("DISPLAY").is_some_and(|d| !d.is_empty()) && std::env::var_os("SOUNDCRAFT_WAYLAND").is_none() {
+    if std::env::var_os("DISPLAY").is_some_and(|d| !d.is_empty())
+        && soundcraft_ui_egui::switch::Switch::from_env("SOUNDCRAFT_WAYLAND") != soundcraft_ui_egui::switch::Switch::On
+    {
         options.event_loop_builder = Some(Box::new(|b| {
             use winit::platform::x11::EventLoopBuilderExtX11;
             b.with_x11();

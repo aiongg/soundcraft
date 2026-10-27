@@ -85,6 +85,10 @@ link stays. An existing file that is not an input is replaced without asking.
 (Linux) and `RUST_LOG` configure the desktop app (see the [README](../README.md#logs) and
 [the control protocol](control-protocol.md)), not the CLI. `soundcraft --help` lists them.
 
+`SOUNDCRAFT_NO_PREFS`, `SOUNDCRAFT_NO_SYSTEM_FONTS` and `SOUNDCRAFT_WAYLAND` are on/off switches with
+one rule: `1/on/true/yes` is on, `0/off/false/no` is off (any case, spaces ignored), and unset or
+blank is the default (off). Any other value is the default and logs a warning that names the variable.
+
 ## Desktop app launch flags
 
 `soundcraft [OPTIONS] [FILES]...` takes the same strict parsing and exit codes.

@@ -19,6 +19,7 @@ pub mod mix_window;
 pub mod palette;
 pub mod panels;
 pub mod shortcuts;
+pub mod switch;
 pub mod theme;
 pub mod toolbar;
 pub mod updates_ui;

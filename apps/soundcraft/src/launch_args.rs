@@ -40,9 +40,11 @@ const ENVIRONMENT: &str = "\
 Environment:
   SOUNDCRAFT_CONTROL_PORT     The --control fallback: a port or host:port, ignored for another host
   SOUNDCRAFT_CONFIG_DIR       The settings folder (ui.json, Autosave, Presets, logs); empty: none
-  SOUNDCRAFT_NO_PREFS         Set: don't read or write preferences; log to stderr only
-  SOUNDCRAFT_NO_SYSTEM_FONTS  Set: use the built-in fonts only
-  SOUNDCRAFT_WAYLAND          Linux, set: native Wayland instead of XWayland
+  SOUNDCRAFT_NO_PREFS         1 doesn't read or write preferences and logs to stderr only; 0 or unset is off
+  SOUNDCRAFT_NO_SYSTEM_FONTS  1 uses the built-in fonts only; 0 or unset is off
+  SOUNDCRAFT_WAYLAND          Linux: 1 keeps the native Wayland backend instead of XWayland; 0 or unset is off
+  The on/off variables take 1/on/true/yes or 0/off/false/no, in any case; any other value is
+  ignored with a warning in the log.
   RUST_LOG                    Log filter, env_logger style: debug, warn,soundcraft_mix=trace";
 
 /// `0.1.0 (linux x86_64)`: the version and the platform the binary was built for.
